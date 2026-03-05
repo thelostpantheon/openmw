@@ -893,8 +893,11 @@ void OMW::Engine::prepareEngine()
     Vita::logMemoryStatus("Pre-data-load");
     VITA_CRUMB("prepareEngine() loading data sync");
     // Load data synchronously on Vita — saves async thread stack (~1MB)
+    // Pass listener directly (not asyncListener) since loading is synchronous.
+    // AsyncListener buffers updates for cross-thread use, but nobody calls update()
+    // on the main thread during sync loading, so the loading screen never draws.
     listener->loadingOn();
-    mWorld->loadData(mFileCollections, mContentFiles, mGroundcoverFiles, mEncoder.get(), &asyncListener);
+    mWorld->loadData(mFileCollections, mContentFiles, mGroundcoverFiles, mEncoder.get(), listener);
     listener->loadingOff();
     Vita::logMemoryStatus("Post-data-load");
 #else
