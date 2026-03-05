@@ -100,7 +100,11 @@ namespace MWInput
             const float xMove = xAxis * dt * 1500.0f / uiScale * gamepadCursorSpeed;
             const float yMove = yAxis * dt * 1500.0f / uiScale * gamepadCursorSpeed;
 
+#ifdef __vita__
+            float mouseWheelMove = -zAxis * dt * 300.0f;
+#else
             float mouseWheelMove = -zAxis * dt * 1500.0f;
+#endif
             if (xMove != 0 || yMove != 0 || mouseWheelMove != 0)
             {
                 mMouseManager->injectMouseMove(xMove, yMove, mouseWheelMove);
@@ -130,6 +134,23 @@ namespace MWInput
 
         MWBase::Environment::get().getLuaManager()->inputEvent(
             { MWBase::LuaManager::InputEvent::ControllerPressed, arg.button });
+
+#ifdef __vita__
+        // Select+Start combo: toggle console
+        if (arg.button == SDL_CONTROLLER_BUTTON_BACK) // Select
+        {
+            mSelectHeld = true;
+            mSelectUsedAsModifier = false;
+            return; // Defer Journal action until release
+        }
+        if (arg.button == SDL_CONTROLLER_BUTTON_START && mSelectHeld)
+        {
+            mSelectUsedAsModifier = true;
+            if (!MyGUI::InputManager::getInstance().isModalAny())
+                MWBase::Environment::get().getWindowManager()->toggleConsole();
+            return;
+        }
+#endif
 
         mJoystickLastUsed = true;
         if (MWBase::Environment::get().getWindowManager()->isGuiMode())
@@ -181,6 +202,23 @@ namespace MWInput
             MWBase::Environment::get().getLuaManager()->inputEvent(
                 { MWBase::LuaManager::InputEvent::ControllerReleased, arg.button });
         }
+
+#ifdef __vita__
+        if (arg.button == SDL_CONTROLLER_BUTTON_BACK) // Select released
+        {
+            bool wasModifier = mSelectUsedAsModifier;
+            mSelectHeld = false;
+            mSelectUsedAsModifier = false;
+            if (!wasModifier && Settings::input().mEnableController
+                && !MWBase::Environment::get().getInputManager()->controlsDisabled())
+            {
+                // Select tapped alone — fire Journal
+                mBindingsManager->controllerButtonPressed(deviceID, arg);
+                mBindingsManager->controllerButtonReleased(deviceID, arg);
+            }
+            return;
+        }
+#endif
 
         if (!Settings::input().mEnableController || MWBase::Environment::get().getInputManager()->controlsDisabled())
             return;

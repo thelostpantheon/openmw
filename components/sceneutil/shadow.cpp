@@ -124,14 +124,20 @@ namespace SceneUtil
         if (Stereo::getStereo())
             Stereo::Manager::instance().setShadowTechnique(mShadowTechnique);
 
+#ifdef __vita__
+        rootNode->addChild(sceneRoot); // bypass ShadowedScene wrapper — shadows always off on Vita
+#else
         mShadowedScene->addChild(sceneRoot);
         rootNode->addChild(mShadowedScene);
+#endif
         mShadowedScene->setNodeMask(sceneRoot->getNodeMask());
 
         mShadowSettings = mShadowedScene->getShadowSettings();
         setupShadowSettings(settings, shaderManager);
 
+#ifndef __vita__
         mShadowTechnique->setupCastingShader(shaderManager);
+#endif
         mShadowTechnique->setWorldMask(worldMask);
 
         enableOutdoorMode();

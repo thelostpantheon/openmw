@@ -12,6 +12,9 @@
 #include <unicode/msgfmt.h>
 
 #include <components/misc/strings/algorithm.hpp>
+#ifdef __vita__
+#include <components/misc/strings/heterogeneous.hpp>
+#endif
 
 namespace L10n
 {
@@ -58,14 +61,23 @@ namespace L10n
             std::string_view localeName = loc.getName();
             if (localeName == "gmst")
                 return mGmstsLoaded;
+#ifdef __vita__
+            return Misc::heterogeneousContains(mBundles, localeName);
+#else
             return mBundles.find(localeName) != mBundles.end();
+#endif
         }
         const icu::Locale& getFallbackLocale() const { return mFallbackLocale; }
         void setGmstLoader(GmstLoader fn) { mGmstLoader = std::move(fn); }
 
     private:
+#ifdef __vita__
+        template <class T>
+        using StringMap = std::unordered_map<std::string, T, Misc::StringUtils::StringHash, std::equal_to<std::string>>;
+#else
         template <class T>
         using StringMap = std::unordered_map<std::string, T, Misc::StringUtils::StringHash, std::equal_to<>>;
+#endif
         // icu::Locale isn't hashable (or comparable), so we use the string form instead, which is canonicalized
         mutable StringMap<StringMap<icu::MessageFormat>> mBundles;
         mutable StringMap<GmstMessageFormat> mGmsts;

@@ -35,6 +35,10 @@
 #include "removedalphafunc.hpp"
 #include "shadermanager.hpp"
 
+#ifdef __vita__
+#include <components/vita/VitaShader.h>
+#endif
+
 namespace Shader
 {
     /**
@@ -606,6 +610,19 @@ namespace Shader
 
     void ShaderVisitor::createProgram(const ShaderRequirements& reqs)
     {
+#ifdef __vita__
+        {
+            const osg::Material* mat = nullptr;
+            if (auto* ss = reqs.mNode->getStateSet())
+                mat = dynamic_cast<const osg::Material*>(
+                    ss->getAttribute(osg::StateAttribute::MATERIAL));
+            // When alphaFunc is GL_ALWAYS, alpha test should be disabled.
+            // Pass 0.0 so the shader's "if (color.a < alphaRef) discard" never fires.
+            float alphaRef = (reqs.mAlphaFunc == GL_ALWAYS) ? 0.0f : reqs.mAlphaRef;
+            Vita::applyVitaShader(*reqs.mNode, reqs.mColorMode, alphaRef, mat);
+        }
+        return;
+#endif
         if (!reqs.mShaderRequired && !mForceShaders)
         {
             ensureFFP(*reqs.mNode);

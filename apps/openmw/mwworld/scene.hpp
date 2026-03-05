@@ -8,6 +8,7 @@
 #include "positioncellgrid.hpp"
 #include "ptr.hpp"
 
+#include <map>
 #include <memory>
 #include <optional>
 #include <set>
@@ -139,6 +140,37 @@ namespace MWWorld
         void unloadCell(CellStore* cell, const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
         void loadCell(CellStore& cell, Loading::Listener* loadingListener, bool respawn, const osg::Vec3f& position,
             const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
+
+#ifdef __vita__
+        enum class CellLoadTier { Full, Lite };
+        std::map<CellStore*, CellLoadTier> mCellLoadTiers;
+
+        struct PendingCellLoad {
+            CellStore* cell;
+            bool objectsCollected = false;  // whether we've collected the object list
+            std::vector<Ptr> objectsToInsert;  // filtered lite-type objects to insert
+            int nextObject = 0;  // index into objectsToInsert
+            bool renderingDone = false;  // first pass (rendering) complete
+            bool physicsDone = false;  // second pass (physics/nav) complete
+            bool batchingDone = false;
+        };
+        std::vector<PendingCellLoad> mPendingCellLoads;
+        static constexpr int kObjectsPerFrame = 8;
+
+        void insertCellLite(CellStore& cell, Loading::Listener* loadingListener,
+            const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
+        void loadCellLite(CellStore& cell, Loading::Listener* loadingListener,
+            const osg::Vec3f& position, const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
+        void prepareCellForDeferredLoad(CellStore& cell, const osg::Vec3f& position,
+            const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
+        void processPendingCellLoads();
+        void promoteCellToFull(CellStore& cell, Loading::Listener* loadingListener,
+            const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
+        void demoteCellToLite(CellStore& cell,
+            const DetourNavigator::UpdateGuard* navigatorUpdateGuard);
+        void vitaBatchCell(CellStore& cell);
+        static bool isLiteType(unsigned int recType);
+#endif
 
     public:
         Scene(MWWorld::World& world, MWRender::RenderingManager& rendering, MWPhysics::PhysicsSystem* physics,

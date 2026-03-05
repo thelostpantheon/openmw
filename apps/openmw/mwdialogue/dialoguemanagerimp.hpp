@@ -40,6 +40,7 @@ namespace MWDialogue
         ModFactionReactionMap mChangedFactionReaction;
 
         std::map<ESM::RefId, ActorKnownTopicInfo> mActorKnownTopics;
+        bool mActorKnownTopicsDirty = true;
 
         Translation::Storage& mTranslationDataStorage;
         MWScript::CompilerContext mCompilerContext;

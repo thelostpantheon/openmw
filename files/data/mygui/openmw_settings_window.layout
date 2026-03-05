@@ -793,6 +793,146 @@
                     </Widget>
                 </Widget>
             </Widget>
+            <Widget type="TabItem">
+                <Property key="Caption" value=" Vita "/>
+                <!-- Cell Range (1=Normal, 2=Extended) -->
+                <Widget type="Widget" position="4 4 352 32" align="Left Top HStretch">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaCellRangeText">
+                        <Property key="Caption" value="Cell Range"/>
+                    </Widget>
+                    <Widget type="ScrollBar" skin="MW_HScroll" position="0 16 352 14" align="Left Top HStretch">
+                        <Property key="Range" value="2"/>
+                        <Property key="Page" value="1"/>
+                        <UserString key="SettingType" value="Slider"/>
+                        <UserString key="SettingCategory" value="Cells"/>
+                        <UserString key="SettingName" value="vita cell range"/>
+                        <UserString key="SettingValueType" value="Integer"/>
+                        <UserString key="SettingMin" value="1"/>
+                        <UserString key="SettingMax" value="2"/>
+                        <UserString key="SettingLabelWidget" value="VitaCellRangeText"/>
+                        <UserString key="SettingLabelCaption" value="VitaCellRangeValue"/>
+                    </Widget>
+                </Widget>
+                <!-- View Distance -->
+                <Widget type="Widget" position="4 40 352 32" align="Left Top HStretch">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaViewDistText">
+                        <Property key="Caption" value="View Distance"/>
+                    </Widget>
+                    <Widget type="ScrollBar" skin="MW_HScroll" position="0 16 352 14" align="Left Top HStretch">
+                        <Property key="Range" value="4501"/>
+                        <Property key="Page" value="100"/>
+                        <UserString key="SettingType" value="Slider"/>
+                        <UserString key="SettingCategory" value="Camera"/>
+                        <UserString key="SettingName" value="viewing distance"/>
+                        <UserString key="SettingValueType" value="Float"/>
+                        <UserString key="SettingMin" value="500"/>
+                        <UserString key="SettingMax" value="5000"/>
+                        <UserString key="SettingLabelWidget" value="VitaViewDistText"/>
+                        <UserString key="SettingLabelCaption" value="VitaViewDistValue"/>
+                    </Widget>
+                </Widget>
+                <!-- Field of View -->
+                <Widget type="Widget" position="4 76 352 32" align="Left Top HStretch">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaFovText">
+                        <Property key="Caption" value="Field of View"/>
+                    </Widget>
+                    <Widget type="ScrollBar" skin="MW_HScroll" position="0 16 352 14" align="Left Top HStretch">
+                        <Property key="Range" value="61"/>
+                        <Property key="Page" value="1"/>
+                        <UserString key="SettingType" value="Slider"/>
+                        <UserString key="SettingCategory" value="Camera"/>
+                        <UserString key="SettingName" value="field of view"/>
+                        <UserString key="SettingValueType" value="Float"/>
+                        <UserString key="SettingMin" value="30"/>
+                        <UserString key="SettingMax" value="90"/>
+                        <UserString key="SettingLabelWidget" value="VitaFovText"/>
+                        <UserString key="SettingLabelCaption" value="VitaFovValue"/>
+                    </Widget>
+                </Widget>
+                <!-- Actors Range -->
+                <Widget type="Widget" position="4 112 352 32" align="Left Top HStretch">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaActorsText">
+                        <Property key="Caption" value="Actors Range"/>
+                    </Widget>
+                    <Widget type="ScrollBar" skin="MW_HScroll" position="0 16 352 14" align="Left Top HStretch">
+                        <Property key="Range" value="5669"/>
+                        <Property key="Page" value="256"/>
+                        <UserString key="SettingType" value="Slider"/>
+                        <UserString key="SettingCategory" value="Game"/>
+                        <UserString key="SettingName" value="actors processing range"/>
+                        <UserString key="SettingValueType" value="Integer"/>
+                        <UserString key="SettingMin" value="1500"/>
+                        <UserString key="SettingMax" value="7168"/>
+                        <UserString key="SettingLabelWidget" value="VitaActorsText"/>
+                        <UserString key="SettingLabelCaption" value="VitaActorsValue"/>
+                    </Widget>
+                </Widget>
+                <!-- Font Size -->
+                <Widget type="Widget" position="4 148 352 32" align="Left Top HStretch">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaFontText">
+                        <Property key="Caption" value="Font Size"/>
+                    </Widget>
+                    <Widget type="ScrollBar" skin="MW_HScroll" position="0 16 352 14" align="Left Top HStretch">
+                        <Property key="Range" value="11"/>
+                        <Property key="Page" value="1"/>
+                        <UserString key="SettingType" value="Slider"/>
+                        <UserString key="SettingCategory" value="GUI"/>
+                        <UserString key="SettingName" value="font size"/>
+                        <UserString key="SettingValueType" value="Integer"/>
+                        <UserString key="SettingMin" value="12"/>
+                        <UserString key="SettingMax" value="22"/>
+                        <UserString key="SettingLabelWidget" value="VitaFontText"/>
+                        <UserString key="SettingLabelCaption" value="VitaFontValue"/>
+                    </Widget>
+                </Widget>
+                <!-- Culling Pixel Size -->
+                <Widget type="Widget" position="4 184 352 32" align="Left Top HStretch">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaCullPixelText">
+                        <Property key="Caption" value="Culling Pixel Size"/>
+                    </Widget>
+                    <Widget type="ScrollBar" skin="MW_HScroll" position="0 16 352 14" align="Left Top HStretch">
+                        <Property key="Range" value="19"/>
+                        <Property key="Page" value="1"/>
+                        <UserString key="SettingType" value="Slider"/>
+                        <UserString key="SettingCategory" value="Camera"/>
+                        <UserString key="SettingName" value="small feature culling pixel size"/>
+                        <UserString key="SettingValueType" value="Float"/>
+                        <UserString key="SettingMin" value="2"/>
+                        <UserString key="SettingMax" value="20"/>
+                        <UserString key="SettingLabelWidget" value="VitaCullPixelText"/>
+                        <UserString key="SettingLabelCaption" value="VitaCullPixelValue"/>
+                    </Widget>
+                </Widget>
+                <!-- Max Light Distance -->
+                <Widget type="Widget" position="4 220 352 32" align="Left Top HStretch">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaLightDistText">
+                        <Property key="Caption" value="Max Light Distance"/>
+                    </Widget>
+                    <Widget type="ScrollBar" skin="MW_HScroll" position="0 16 352 14" align="Left Top HStretch">
+                        <Property key="Range" value="449"/>
+                        <Property key="Page" value="32"/>
+                        <UserString key="SettingType" value="Slider"/>
+                        <UserString key="SettingCategory" value="Shaders"/>
+                        <UserString key="SettingName" value="maximum light distance"/>
+                        <UserString key="SettingValueType" value="Float"/>
+                        <UserString key="SettingMin" value="64"/>
+                        <UserString key="SettingMax" value="512"/>
+                        <UserString key="SettingLabelWidget" value="VitaLightDistText"/>
+                        <UserString key="SettingLabelCaption" value="VitaLightDistValue"/>
+                    </Widget>
+                </Widget>
+                <!-- Small Feature Culling -->
+                <Widget type="Widget" position="4 258 352 22" align="Left Top HStretch">
+                    <Widget type="AutoSizedButton" skin="MW_Button" position="0 0 50 22" align="Left Top" name="VitaSmallFeatureCullingButton">
+                        <UserString key="SettingCategory" value="Camera"/>
+                        <UserString key="SettingName" value="small feature culling"/>
+                        <UserString key="SettingType" value="CheckButton"/>
+                    </Widget>
+                    <Widget type="TextBox" skin="NormalText" position="56 3 296 18" align="Left Top">
+                        <Property key="Caption" value="Cull Small Objects"/>
+                    </Widget>
+                </Widget>
+            </Widget>
         </Widget>
         <Widget type="AutoSizedButton" skin="MW_Button" position="320 420 56 24" align="Right Bottom" name="OkButton">
             <Property key="ExpandDirection" value="Left"/>

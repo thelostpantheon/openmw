@@ -70,6 +70,11 @@ namespace SDLUtil
             SDL_FlushEvent(SDL_MOUSEBUTTONDOWN);
             SDL_FlushEvent(SDL_MOUSEMOTION);
             SDL_FlushEvent(SDL_MOUSEWHEEL);
+#ifdef __vita__
+            SDL_FlushEvent(SDL_FINGERDOWN);
+            SDL_FlushEvent(SDL_FINGERUP);
+            SDL_FlushEvent(SDL_FINGERMOTION);
+#endif
 
             return;
         }
@@ -211,11 +216,55 @@ namespace SDLUtil
 
                 case SDL_FINGERDOWN:
                 case SDL_FINGERUP:
+#ifdef __vita__
+                    // Front touchscreen zones act as virtual buttons for inputs
+                    // the Vita lacks (no stick clicks). touchId 1 = front panel.
+                    // Top-left = LEFTSTICK (Toggle POV), Top-right = RIGHTSTICK (QuickSave).
+                    if (mConListener && evt.tfinger.touchId == 1)
+                    {
+                        bool isLeft = (evt.tfinger.x < 0.25f && evt.tfinger.y < 0.2f);
+                        bool isRight = (evt.tfinger.x > 0.75f && evt.tfinger.y < 0.2f);
+
+                        if (isLeft)
+                        {
+                            bool pressed = (evt.type == SDL_FINGERDOWN);
+                            if (pressed != mTouchZoneLeft)
+                            {
+                                mTouchZoneLeft = pressed;
+                                SDL_ControllerButtonEvent btnEvt = {};
+                                btnEvt.type = pressed ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP;
+                                btnEvt.button = SDL_CONTROLLER_BUTTON_LEFTSTICK;
+                                btnEvt.state = pressed ? SDL_PRESSED : SDL_RELEASED;
+                                if (pressed)
+                                    mConListener->buttonPressed(1, btnEvt);
+                                else
+                                    mConListener->buttonReleased(1, btnEvt);
+                            }
+                        }
+                        else if (isRight)
+                        {
+                            bool pressed = (evt.type == SDL_FINGERDOWN);
+                            if (pressed != mTouchZoneRight)
+                            {
+                                mTouchZoneRight = pressed;
+                                SDL_ControllerButtonEvent btnEvt = {};
+                                btnEvt.type = pressed ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP;
+                                btnEvt.button = SDL_CONTROLLER_BUTTON_RIGHTSTICK;
+                                btnEvt.state = pressed ? SDL_PRESSED : SDL_RELEASED;
+                                if (pressed)
+                                    mConListener->buttonPressed(1, btnEvt);
+                                else
+                                    mConListener->buttonReleased(1, btnEvt);
+                            }
+                        }
+                    }
+                    break;
+#endif
                 case SDL_FINGERMOTION:
                 case SDL_DOLLARGESTURE:
                 case SDL_DOLLARRECORD:
                 case SDL_MULTIGESTURE:
-                    // No use for touch & gesture events
+                    // No use for touch, motion & gesture events
                     break;
 
                 case SDL_APP_WILLENTERBACKGROUND:

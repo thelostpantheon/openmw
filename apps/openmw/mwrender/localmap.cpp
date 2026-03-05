@@ -610,8 +610,12 @@ namespace MWRender
     void LocalMap::MapSegment::initFogOfWar()
     {
         mFogOfWarImage = new osg::Image;
+#ifndef __vita__
         // Assign a PixelBufferObject for asynchronous transfer of data to the GPU
+        // vitaGL doesn't support GL_PIXEL_UNPACK_BUFFER — glBindBuffer silently fails,
+        // causing OSG to pass a PBO offset (0) as raw pixels pointer to glTexSubImage2D.
         mFogOfWarImage->setPixelBufferObject(new osg::PixelBufferObject);
+#endif
         mFogOfWarImage->allocateImage(sFogOfWarResolution, sFogOfWarResolution, 1, GL_RGBA, GL_UNSIGNED_BYTE);
         assert(mFogOfWarImage->isDataContiguous());
         std::vector<uint32_t> data;

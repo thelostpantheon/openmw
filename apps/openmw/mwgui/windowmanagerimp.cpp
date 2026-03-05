@@ -263,6 +263,12 @@ namespace MWGui
         mLoadingScreen = loadingScreen.get();
         mWindows.push_back(std::move(loadingScreen));
 
+#ifdef __vita__
+        // Vita SDL2 has no hardware cursor support — use MyGUI's software pointer
+        MyGUI::InputManager::getInstance().eventChangeKeyFocus
+            += MyGUI::newDelegate(this, &WindowManager::onKeyFocusChanged);
+        MyGUI::PointerManager::getInstance().setVisible(true);
+#else
         // set up the hardware cursor manager
         mCursorManager = std::make_unique<SDLUtil::SDLCursorManager>();
 
@@ -279,6 +285,7 @@ namespace MWGui
 
         // hide mygui's pointer
         MyGUI::PointerManager::getInstance().setVisible(false);
+#endif
 
         mVideoBackground = MyGUI::Gui::getInstance().createWidgetReal<MyGUI::ImageBox>(
             "ImageBox", 0, 0, 1, 1, MyGUI::Align::Default, "Video");
@@ -333,7 +340,9 @@ namespace MWGui
         auto map = std::make_unique<MapWindow>(mCustomMarkers, mDragAndDrop.get(), mLocalMapRender.get(), mWorkQueue);
         mMap = map.get();
         mWindows.push_back(std::move(map));
+#ifndef __vita__
         mMap->renderGlobalMap();
+#endif
         trackWindow(mMap, makeMapWindowSettingValues());
 
         auto statsWindow = std::make_unique<StatsWindow>(mDragAndDrop.get());
@@ -509,10 +518,12 @@ namespace MWGui
         mWindows.push_back(std::move(debugWindow));
         trackWindow(mDebugWindow, makeDebugWindowSettingValues());
 
+#ifndef __vita__
         auto postProcessorHud = std::make_unique<PostProcessorHud>(mCfgMgr);
         mPostProcessorHud = postProcessorHud.get();
         mWindows.push_back(std::move(postProcessorHud));
         trackWindow(mPostProcessorHud, makePostprocessorWindowSettingValues());
+#endif
 
         auto controllerButtonsOverlay = std::make_unique<ControllerButtonsOverlay>();
         mControllerButtonsOverlay = controllerButtonsOverlay.get();
@@ -1102,7 +1113,8 @@ namespace MWGui
 
         mHud->onFrame(frameDuration);
 
-        mPostProcessorHud->onFrame(frameDuration);
+        if (mPostProcessorHud)
+            mPostProcessorHud->onFrame(frameDuration);
 
         if (mCharGen)
             mCharGen->onFrame(frameDuration);
@@ -1222,11 +1234,17 @@ namespace MWGui
     void WindowManager::setCursorVisible(bool visible)
     {
         mCursorVisible = visible;
+#ifdef __vita__
+        MyGUI::PointerManager::getInstance().setVisible(mCursorVisible && mCursorActive);
+#endif
     }
 
     void WindowManager::setCursorActive(bool active)
     {
         mCursorActive = active;
+#ifdef __vita__
+        MyGUI::PointerManager::getInstance().setVisible(mCursorVisible && mCursorActive);
+#endif
     }
 
     void WindowManager::onRetrieveTag(const MyGUI::UString& tag, MyGUI::UString& result)
@@ -1378,7 +1396,9 @@ namespace MWGui
 
     void WindowManager::onCursorChange(std::string_view name)
     {
+#ifndef __vita__
         mCursorManager->cursorChanged(name);
+#endif
     }
 
     void WindowManager::pushGuiMode(GuiMode mode)
@@ -1873,6 +1893,10 @@ namespace MWGui
 
     void WindowManager::onKeyFocusChanged(MyGUI::Widget* widget)
     {
+#ifndef __vita__
+        // On Vita, SDL_StartTextInput does nothing useful (no soft keyboard) but
+        // makes SDL_IsTextInputActive() return true, which blocks controller A
+        // button processing in gamepadToGuiControl(). Skip it entirely on Vita.
         bool isEditBox = widget && widget->castType<MyGUI::EditBox>(false);
         LuaUi::WidgetExtension* luaWidget = dynamic_cast<LuaUi::WidgetExtension*>(widget);
         bool capturesInput = luaWidget ? luaWidget->isTextInput() : isEditBox;
@@ -1880,6 +1904,7 @@ namespace MWGui
             SDL_StartTextInput();
         else
             SDL_StopTextInput();
+#endif
     }
 
     void WindowManager::setEnemy(const MWWorld::Ptr& enemy)
@@ -2058,6 +2083,9 @@ namespace MWGui
 
     void WindowManager::playVideo(std::string_view name, bool allowSkipping, bool overrideSounds)
     {
+#ifdef __vita__
+        return; // Video playback disabled on Vita for now
+#endif
         mVideoWidget->playVideo("video\\" + std::string{ name });
 
         mVideoWidget->eventKeyButtonPressed.clear();
@@ -2336,7 +2364,8 @@ namespace MWGui
 
     void WindowManager::togglePostProcessorHud()
     {
-        if (!MWBase::Environment::get().getWorld()->getPostProcessor()->isEnabled())
+        auto* pp = MWBase::Environment::get().getWorld()->getPostProcessor();
+        if (!pp || !pp->isEnabled())
         {
             messageBox("#{OMWEngine:PostProcessingIsNotEnabled}");
             return;

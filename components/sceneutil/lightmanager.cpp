@@ -380,6 +380,13 @@ namespace SceneUtil
         {
             if (mLights.empty())
                 return;
+#ifdef __vita__
+            // On Vita, VitaLit reads light data from uniforms set in
+            // StateSetGeneratorFFP::generate(). Skip all FFP glLight calls
+            // and the matrix save/restore — saves ~7 GL calls per light
+            // plus 2 glLoadMatrix calls per lit object.
+            return;
+#endif
             osg::Matrix modelViewMatrix = state.getModelViewMatrix();
 
             state.applyModelViewMatrix(state.getInitialViewMatrix());
@@ -439,6 +446,44 @@ namespace SceneUtil
         {
             osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
 
+#ifdef __vita__
+            // Vita: skip FFPLightStateAttribute, GL_LIGHT modes, and dummy attributes entirely.
+            // Our VitaLit shader reads light data from uniforms only.
+            // FFPLightStateAttribute::apply() early-returns, glEnable(GL_LIGHTn) is no-op'd.
+            static const char* posNames[] = {
+                "u_lightPos0", "u_lightPos1", "u_lightPos2", "u_lightPos3",
+                "u_lightPos4", "u_lightPos5", "u_lightPos6"
+            };
+            static const char* diffNames[] = {
+                "u_lightDiffuse0", "u_lightDiffuse1", "u_lightDiffuse2", "u_lightDiffuse3",
+                "u_lightDiffuse4", "u_lightDiffuse5", "u_lightDiffuse6"
+            };
+            static const char* attenNames[] = {
+                "u_lightAtten0", "u_lightAtten1", "u_lightAtten2", "u_lightAtten3",
+                "u_lightAtten4", "u_lightAtten5", "u_lightAtten6"
+            };
+            for (size_t i = 0; i < 7; ++i)
+            {
+                if (i < lightList.size())
+                {
+                    auto* light = lightList[i]->mLightSource->getLight(frameNum);
+                    osg::Vec3f vp = lightList[i]->mViewBound.center();
+                    stateset->addUniform(new osg::Uniform(posNames[i],
+                        osg::Vec4f(vp.x(), vp.y(), vp.z(), 1.0f)));
+                    stateset->addUniform(new osg::Uniform(diffNames[i], light->getDiffuse()));
+                    stateset->addUniform(new osg::Uniform(attenNames[i], osg::Vec4f(
+                        light->getConstantAttenuation(),
+                        light->getLinearAttenuation(),
+                        light->getQuadraticAttenuation(), 0.f)));
+                }
+                else
+                {
+                    stateset->addUniform(new osg::Uniform(posNames[i], osg::Vec4f(0, 0, 0, 0)));
+                    stateset->addUniform(new osg::Uniform(diffNames[i], osg::Vec4f(0, 0, 0, 0)));
+                    stateset->addUniform(new osg::Uniform(attenNames[i], osg::Vec4f(1, 0, 0, 0)));
+                }
+            }
+#else
             std::vector<osg::ref_ptr<osg::Light>> lights;
             lights.reserve(lightList.size());
             for (size_t i = 0; i < lightList.size(); ++i)
@@ -459,6 +504,7 @@ namespace SceneUtil
             for (size_t i = 1; i < lightList.size(); ++i)
                 stateset->setAttribute(
                     mLightManager->getDummies()[i + mLightManager->getStartLight()].get(), osg::StateAttribute::ON);
+#endif
 
             return stateset;
         }

@@ -168,9 +168,13 @@ namespace Terrain
         mStorage->getBlendmaps(chunkSize, chunkCenter, blendmaps, layerList, mWorldspace);
 
         bool useShaders = mSceneManager->getForceShaders();
+#ifdef __vita__
+        useShaders = false;
+#else
         if (!mSceneManager->getClampLighting())
             useShaders = true; // always use shaders when lighting is unclamped, this is to avoid lighting seams between
                                // a terrain chunk with normal maps and one without normal maps
+#endif
 
         std::vector<TextureLayer> layers;
         {
@@ -185,8 +189,10 @@ namespace Terrain
                 if (!forCompositeMap && !it->mNormalMap.empty())
                     textureLayer.mNormalMap = mTextureManager->getTexture(it->mNormalMap);
 
+#ifndef __vita__
                 if (it->requiresShaders())
                     useShaders = true;
+#endif
 
                 layers.push_back(textureLayer);
             }

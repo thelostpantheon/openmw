@@ -16,7 +16,11 @@ if(NOT OPENMW_USE_SYSTEM_BULLET)
     set(BUILD_EGL OFF CACHE BOOL "")
 
     set(USE_DOUBLE_PRECISION ON CACHE BOOL "")
-    set(BULLET2_MULTITHREADING ON CACHE BOOL "")
+    if(VITA)
+        set(BULLET2_MULTITHREADING OFF CACHE BOOL "" FORCE)
+    else()
+        set(BULLET2_MULTITHREADING ON CACHE BOOL "")
+    endif()
 
     if(BULLET_STATIC)
         set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -48,6 +52,11 @@ if(NOT OPENMW_USE_SYSTEM_BULLET)
 endif()
 
 if(NOT OPENMW_USE_SYSTEM_MYGUI)
+
+    # MyGUI 3.4.3 uses modern imported targets — ensure they exist
+    find_package(BZip2 QUIET)
+    find_package(PNG QUIET)
+    find_package(ZLIB QUIET)
 
     set(MYGUI_RENDERSYSTEM 4 CACHE STRING "")
     set(MYGUI_DISABLE_PLUGINS TRUE CACHE BOOL "")
@@ -82,7 +91,11 @@ if(NOT OPENMW_USE_SYSTEM_OSG)
 
     set(BUILD_OSG_PLUGINS_BY_DEFAULT OFF CACHE BOOL "")
     set(BUILD_OSG_PLUGIN_BMP ON CACHE BOOL "")
-    set(BUILD_OSG_PLUGIN_DAE ON CACHE BOOL "")
+    if(NOT VITA)
+        set(BUILD_OSG_PLUGIN_DAE ON CACHE BOOL "")
+    else()
+        set(BUILD_OSG_PLUGIN_DAE OFF CACHE BOOL "" FORCE)
+    endif()
     set(BUILD_OSG_PLUGIN_DDS ON CACHE BOOL "")
     set(BUILD_OSG_PLUGIN_FREETYPE ON CACHE BOOL "")
     set(BUILD_OSG_PLUGIN_JPEG ON CACHE BOOL "")
@@ -91,11 +104,32 @@ if(NOT OPENMW_USE_SYSTEM_OSG)
     set(BUILD_OSG_PLUGIN_PNG ON CACHE BOOL "")
     set(BUILD_OSG_PLUGIN_TGA ON CACHE BOOL "")
 
-    set(OSG_USE_FLOAT_MATRIX OFF CACHE BOOL "")
-    set(OSG_USE_FLOAT_PLANE OFF CACHE BOOL "")
-    set(OSG_USE_FLOAT_QUAT OFF CACHE BOOL "")
+    if(VITA)
+        # vitaGL only has float GL functions, not double
+        set(OSG_USE_FLOAT_MATRIX ON CACHE BOOL "" FORCE)
+        set(OSG_USE_FLOAT_PLANE ON CACHE BOOL "" FORCE)
+        set(OSG_USE_FLOAT_QUAT ON CACHE BOOL "" FORCE)
+        # NOTE: FLOAT_BOUNDINGSPHERE/BOUNDINGBOX cause ODR violations with incremental
+        # builds (RefMatrixf vs RefMatrixd mismatch triggers GCC 10 ICE). Only safe with
+        # full clean builds. Leaving disabled for now.
+        # Compile out all osg::notify() calls — no console on Vita
+        set(OSG_NOTIFY_DISABLED ON CACHE BOOL "" FORCE)
+    else()
+        set(OSG_USE_FLOAT_MATRIX OFF CACHE BOOL "")
+        set(OSG_USE_FLOAT_PLANE OFF CACHE BOOL "")
+        set(OSG_USE_FLOAT_QUAT OFF CACHE BOOL "")
+    endif()
 
     set(OPENGL_PROFILE "GL2" CACHE STRING "")
+
+    if(VITA)
+        set(OSG_GL_LIBRARY_STATIC ON CACHE BOOL "" FORCE)
+        # vitaGL display lists are non-functional without HAVE_DISPLAY_LISTS build flag.
+        # With only 1 display list slot, glGenLists returns the same ID for all drawables,
+        # and glCallList replays an empty list (nothing recorded without HAVE_DLISTS).
+        # This causes all NIF geometry to disappear after its first frame.
+        set(OSG_GL_DISPLAYLISTS_AVAILABLE OFF CACHE BOOL "" FORCE)
+    endif()
 
     if(OSG_STATIC)
         set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -179,7 +213,9 @@ if (NOT OPENMW_USE_SYSTEM_SQLITE3)
 
     add_library(sqlite3 STATIC ${sqlite3_SOURCE_DIR}/sqlite3.c)
     target_include_directories(sqlite3 INTERFACE ${sqlite3_SOURCE_DIR}/)
-    if (UNIX)
+    if(VITA)
+        target_compile_definitions(sqlite3 PRIVATE SQLITE_OS_OTHER=1 SQLITE_TEMP_STORE=3)
+    elseif (UNIX)
         target_link_libraries(sqlite3 ${CMAKE_DL_LIBS})
     endif()
     add_library(SQLite::SQLite3 ALIAS sqlite3)
@@ -222,6 +258,13 @@ if (NOT OPENMW_USE_SYSTEM_YAML_CPP)
     )
     FetchContent_MakeAvailable(yaml-cpp)
 
+    if (VITA)
+        # yaml-cpp forces POSITION_INDEPENDENT_CODE ON for static builds,
+        # but Vita has no dynamic linker and PIC generates R_ARM_BASE_PREL
+        # relocations that vita-elf-create cannot handle.
+        set_target_properties(yaml-cpp PROPERTIES POSITION_INDEPENDENT_CODE OFF)
+    endif()
+
     if (MSVC AND PRECOMPILE_HEADERS_WITH_MSVC)
         target_precompile_headers(yaml-cpp PRIVATE <algorithm>)
     endif()
@@ -229,7 +272,18 @@ endif()
 
 if (NOT OPENMW_USE_SYSTEM_ICU)
     set(ICU_ENV "ICU_DATA_FILTER_FILE=${CMAKE_CURRENT_SOURCE_DIR}/icufilters.json")
-    if (ANDROID)
+    if (VITA)
+        set(ICU_ENV
+            ${ICU_ENV}
+            "CC=${CMAKE_C_COMPILER}"
+            "CXX=${CMAKE_CXX_COMPILER}"
+            "RANLIB=${CMAKE_RANLIB}"
+            "AR=${CMAKE_AR}"
+            "CFLAGS=-Os"
+            "CXXFLAGS=-Os"
+        )
+        set(ICU_ADDITIONAL_OPTS --disable-tools --host=arm-vita-eabi)
+    elseif (ANDROID)
         # Note: Must be a build directory, not an install root, since the configure script
         # looks for a configuration file which does not get installed.
         set(OPENMW_ICU_HOST_BUILD_DIR "" CACHE STRING "A pre-built ICU build directory for the host system if cross-compiling")

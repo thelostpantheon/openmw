@@ -16,6 +16,10 @@
 #include <osgAnimation/UpdateBone>
 
 #include <osgParticle/ParticleSystem>
+#ifdef __vita__
+#include <osgParticle/ParticleProcessor>
+#include <osgParticle/ParticleSystemUpdater>
+#endif
 
 #include <osgUtil/IncrementalCompileOperation>
 
@@ -101,9 +105,10 @@ namespace
     {
     public:
         /// @param mask The node mask to set on ParticleSystem nodes.
-        InitParticlesVisitor(unsigned int mask)
+        InitParticlesVisitor(unsigned int mask, bool allowParticles = false)
             : osg::NodeVisitor(TRAVERSE_ALL_CHILDREN)
             , mMask(mask)
+            , mAllowParticles(allowParticles)
         {
         }
 
@@ -118,6 +123,14 @@ namespace
         {
             if (osgParticle::ParticleSystem* partsys = dynamic_cast<osgParticle::ParticleSystem*>(&drw))
             {
+#ifdef __vita__
+                if (!mAllowParticles)
+                {
+                    partsys->setNodeMask(0);
+                    partsys->setUpdateCallback(nullptr);
+                    return;
+                }
+#endif
                 if (isWorldSpaceParticleSystem(partsys))
                 {
                     partsys->addUpdateCallback(new InitWorldSpaceParticlesCallback);
@@ -126,8 +139,25 @@ namespace
             }
         }
 
+#ifdef __vita__
+        void apply(osg::Node& node) override
+        {
+            if (!mAllowParticles)
+            {
+                if (dynamic_cast<osgParticle::ParticleSystemUpdater*>(&node)
+                    || dynamic_cast<osgParticle::ParticleProcessor*>(&node))
+                {
+                    node.setNodeMask(0);
+                    node.setUpdateCallback(nullptr);
+                }
+            }
+            traverse(node);
+        }
+#endif
+
     private:
         unsigned int mMask;
+        bool mAllowParticles;
     };
 }
 
@@ -972,17 +1002,27 @@ namespace Resource
             Log(Debug::Warning) << "Failed to load error marker:" << e.what()
                                 << ", using embedded marker_error instead";
         }
+#ifdef __vita__
+        // No .osgt serializer on Vita — return empty node
+        return new osg::Node();
+#else
         Files::IMemStream file(ErrorMarker::sValue.data(), ErrorMarker::sValue.size());
         constexpr VFS::Path::NormalizedView errorMarker("error_marker.osgt");
         return loadNonNif(errorMarker, file, mImageManager);
+#endif
     }
 
     void SceneManager::loadSelectionMarker(
         osg::ref_ptr<osg::Group> parentNode, const char* markerData, long long markerSize) const
     {
+#ifdef __vita__
+        // No .osgt serializer on Vita — add empty node
+        parentNode->addChild(new osg::Node());
+#else
         Files::IMemStream file(markerData, markerSize);
         constexpr VFS::Path::NormalizedView selectionMarker("selectionmarker.osgt");
         parentNode->addChild(loadNonNif(selectionMarker, file, mImageManager));
+#endif
     }
 
     osg::ref_ptr<osg::Node> SceneManager::cloneErrorMarker()
@@ -1044,9 +1084,9 @@ namespace Resource
         }
     }
 
-    osg::ref_ptr<osg::Node> SceneManager::getInstance(VFS::Path::NormalizedView path)
+    osg::ref_ptr<osg::Node> SceneManager::getInstance(VFS::Path::NormalizedView path, bool allowParticles)
     {
-        return getInstance(getTemplate(path));
+        return getInstance(getTemplate(path), allowParticles);
     }
 
     osg::ref_ptr<osg::Node> SceneManager::cloneNode(const osg::Node* base)
@@ -1070,23 +1110,24 @@ namespace Resource
         return cloned;
     }
 
-    osg::ref_ptr<osg::Node> SceneManager::getInstance(const osg::Node* base)
+    osg::ref_ptr<osg::Node> SceneManager::getInstance(const osg::Node* base, bool allowParticles)
     {
         osg::ref_ptr<osg::Node> cloned = cloneNode(base);
         // we can skip any scene graphs without update callbacks since we know that particle emitters will have an
         // update callback set
         if (cloned->getNumChildrenRequiringUpdateTraversal() > 0)
         {
-            InitParticlesVisitor visitor(mParticleSystemMask);
+            InitParticlesVisitor visitor(mParticleSystemMask, allowParticles);
             cloned->accept(visitor);
         }
 
         return cloned;
     }
 
-    osg::ref_ptr<osg::Node> SceneManager::getInstance(VFS::Path::NormalizedView path, osg::Group* parentNode)
+    osg::ref_ptr<osg::Node> SceneManager::getInstance(
+        VFS::Path::NormalizedView path, osg::Group* parentNode, bool allowParticles)
     {
-        osg::ref_ptr<osg::Node> cloned = getInstance(path);
+        osg::ref_ptr<osg::Node> cloned = getInstance(path, allowParticles);
         attachTo(cloned, parentNode);
         return cloned;
     }

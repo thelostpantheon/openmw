@@ -89,6 +89,17 @@ namespace MyGUIPlatform
         {
             osg::State* state = renderInfo.getState();
 
+#ifdef __vita__
+            // Ensure FFP mode is active: the 3D scene may have left a custom shader
+            // program bound (VitaLit/VitaTerrain). vitaGL uses separate vertex attribute
+            // arrays for FFP (ffp_vertex_attrib_config) vs custom shaders
+            // (vertex_attrib_config). Without this reset, MyGUI's glVertexPointer() etc.
+            // populate FFP arrays but the draw reads from the stale shader arrays.
+            glUseProgram(0);
+            glBindBuffer(GL_ARRAY_BUFFER, 0);
+            glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, 0);
+#endif
+
             state->pushStateSet(mStateSet);
             state->apply();
 

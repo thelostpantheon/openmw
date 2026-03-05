@@ -420,6 +420,16 @@ namespace MWRender
     {
         ensureLoaded();
 
+#ifdef __vita__
+        // On Vita, render() is deferred. If clear() is called before render()
+        // (e.g. during loadGame → cleanup), mOverlayImage is still null.
+        if (!mOverlayImage)
+        {
+            mPendingImageDest.clear();
+            return;
+        }
+#endif
+
         memset(mOverlayImage->data(), 0, mOverlayImage->getTotalSizeInBytes());
 
         mPendingImageDest.clear();
@@ -468,6 +478,13 @@ namespace MWRender
 
     void GlobalMap::read(ESM::GlobalMap& map)
     {
+#ifdef __vita__
+        // On Vita, render() is deferred to first map open (saves ~5MB).
+        // If read() is called during save loading before render(), textures are null.
+        // Force render now so ensureLoaded() can consume the work item.
+        if (!mWorkItem && !mOverlayTexture)
+            render();
+#endif
         ensureLoaded();
 
         const ESM::GlobalMap::Bounds& bounds = map.mBounds;

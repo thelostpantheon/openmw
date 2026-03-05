@@ -89,3 +89,40 @@ venv/
 ## operating system files
 .DS_Store
 Thumbs.db
+
+## Game assets (Morrowind data files)
+/Assets/
+
+## FetchContent / ExternalProject dependencies (downloaded at configure time)
+/_deps/
+/extern/fetched/bullet/
+/extern/fetched/mygui/
+/extern/fetched/osg/
+# Exception: tracked Vita patches inside OSG
+!/extern/fetched/osg/include/
+!/extern/fetched/osg/include/osg/
+!/extern/fetched/osg/include/osg/VitaGLCompat
+/extern/fetched/yaml-cpp/
+/extern/fetched/recastnavigation/
+/extern/fetched/sqlite3/
+/extern/format_compat/
+/extern/icu-prefix/
+
+## CMake build artifacts that end up in source tree
+/compile_commands.json
+/defaults.bin
+/defaults-cs.bin
+/gamecontrollerdb.txt
+/openmw.appdata.xml
+/TryRunResults.cmake
+/try-compile/
+components/version/version.cpp
+components/version/version.cpp.out
+
+## Vita dead/superseded cmake shims (active ones are in components/vita/)
+/cmake/vita/
+/cmake/vita_gl_compat.h
+
+## Vita build artifacts / local scripts
+*.vpk
+build-vita-optimized.sh

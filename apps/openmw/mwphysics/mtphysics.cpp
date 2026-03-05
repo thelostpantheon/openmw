@@ -8,6 +8,10 @@
 #include <stdexcept>
 #include <variant>
 
+#ifdef __vita__
+#include <pthread.h>
+#endif
+
 #include <BulletCollision/BroadphaseCollision/btDbvtBroadphase.h>
 #include <BulletCollision/CollisionShapes/btCollisionShape.h>
 #include <LinearMath/btThreads.h>
@@ -429,8 +433,27 @@ namespace MWPhysics
         if (mNumThreads >= 1)
         {
             Log(Debug::Info) << "Using " << mNumThreads << " async physics threads";
+#ifdef __vita__
+            // Bullet's GJK/EPA solver uses ~30KB+ stack per call frame.
+            // Default pthread stack on Vita overflows. Use 512KB.
+            for (unsigned i = 0; i < mNumThreads; ++i)
+            {
+                pthread_t tid;
+                pthread_attr_t attr;
+                pthread_attr_init(&attr);
+                pthread_attr_setstacksize(&attr, 512 * 1024);
+                auto* self = this;
+                pthread_create(&tid, &attr, [](void* arg) -> void* {
+                    static_cast<PhysicsTaskScheduler*>(arg)->worker();
+                    return nullptr;
+                }, self);
+                pthread_attr_destroy(&attr);
+                mThreads.push_back(tid);
+            }
+#else
             for (unsigned i = 0; i < mNumThreads; ++i)
                 mThreads.emplace_back([&] { worker(); });
+#endif
         }
         else
         {
@@ -454,8 +477,13 @@ namespace MWPhysics
         }
         if (mWorkersSync != nullptr)
             mWorkersSync->stopWorkers();
+#ifdef __vita__
+        for (auto& tid : mThreads)
+            pthread_join(tid, nullptr);
+#else
         for (auto& thread : mThreads)
             thread.join();
+#endif
     }
 
     std::tuple<unsigned, float> PhysicsTaskScheduler::calculateStepConfig(float timeAccum) const

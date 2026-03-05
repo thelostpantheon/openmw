@@ -81,6 +81,11 @@ namespace SDLUtil
 
         Uint16 mScaleX;
         Uint16 mScaleY;
+
+#ifdef __vita__
+        bool mTouchZoneLeft = false;   // top-left touch zone active
+        bool mTouchZoneRight = false;  // top-right touch zone active
+#endif
     };
 
 }

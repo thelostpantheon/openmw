@@ -28,6 +28,15 @@ extern "C" __declspec(dllexport) DWORD AmdPowerXpressRequestHighPerformance = 0x
 #include <unistd.h>
 #endif
 
+#ifdef __vita__
+#include "vita/VitaInit.h"
+// Force the linker to keep sceUserMainThreadStackSize in the binary.
+// With -fdata-sections + --gc-sections, the symbol gets its own section
+// which the linker strips because it can't see the Vita loader's reference.
+// This extern declaration + volatile read in main() creates a GC root.
+extern "C" unsigned int sceUserMainThreadStackSize;
+#endif
+
 /**
  * \brief Parses application command line and calls \ref Cfg::ConfigurationManager
  * to parse configuration files.
@@ -39,6 +48,9 @@ extern "C" __declspec(dllexport) DWORD AmdPowerXpressRequestHighPerformance = 0x
  */
 bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::ConfigurationManager& cfgMgr)
 {
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() enter");
+#endif
     // Create a local alias for brevity
     namespace bpo = boost::program_options;
     typedef std::vector<std::string> StringsVector;
@@ -48,6 +60,10 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
 
     Files::parseArgs(argc, argv, variables, desc);
     bpo::notify(variables);
+
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() args parsed");
+#endif
 
     if (variables.count("help"))
     {
@@ -61,16 +77,42 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
         return false;
     }
 
+#ifdef __vita__
+    // Vita has no CWD concept; use app0: (VPK root) as the base path
+    cfgMgr.processPaths(variables, std::filesystem::path("app0:"));
+    Vita::breadcrumb("parseOptions() processPaths done");
+#else
     cfgMgr.processPaths(variables, std::filesystem::current_path());
+#endif
 
     cfgMgr.readConfiguration(variables, desc);
+
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() readConfiguration done");
+#endif
 
     Debug::setupLogging(cfgMgr.getLogPath(), "OpenMW");
     Log(Debug::Info) << Version::getOpenmwVersionDescription();
 
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() logging setup done");
+#endif
+
     Settings::Manager::load(cfgMgr);
 
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() settings loaded");
+#endif
+
+#ifdef __vita__
+    Vita::applySettingsOverrides();
+#endif
+
     MWGui::DebugWindow::startLogRecording();
+
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() startLogRecording done");
+#endif
 
     engine.setGrabMouse(!variables["no-grab"].as<bool>());
 
@@ -78,6 +120,10 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
     std::string encoding(variables["encoding"].as<std::string>());
     Log(Debug::Info) << ToUTF8::encodingUsingMessage(encoding);
     engine.setEncoding(ToUTF8::calculateEncoding(encoding));
+
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() encoding set");
+#endif
 
     Files::PathContainer dataDirs(asPathContainer(variables["data"].as<Files::MaybeQuotedPathContainer>()));
 
@@ -90,18 +136,37 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
 
     cfgMgr.filterOutNonExistingPaths(dataDirs);
 
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() dataDirs resolved");
+#endif
+
     engine.setResourceDir(variables["resources"]
                               .as<Files::MaybeQuotedPath>()
                               .u8string()); // This call to u8string is redundant, but required to build on MSVC 14.26
                                             // due to implementation bugs.
     engine.setDataDirs(dataDirs);
 
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() resourceDir and dataDirs set");
+#endif
+
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() about to read fallback-archive");
+#endif
+
     // fallback archives
     StringsVector archives = variables["fallback-archive"].as<StringsVector>();
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() fallback-archive read OK");
+#endif
     for (StringsVector::const_iterator it = archives.begin(); it != archives.end(); ++it)
     {
         engine.addArchive(*it);
     }
+
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() archives added");
+#endif
 
     StringsVector content = variables["content"].as<StringsVector>();
     if (content.empty())
@@ -109,7 +174,13 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
         Log(Debug::Error) << "No content file given (esm/esp, nor omwgame/omwaddon). Aborting...";
         return false;
     }
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() content read OK");
+#endif
     engine.addContentFile("builtin.omwscripts");
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() builtin.omwscripts added");
+#endif
     std::set<std::string> contentDedupe{ "builtin.omwscripts" };
     for (const auto& contentFile : content)
     {
@@ -125,7 +196,14 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
         engine.addContentFile(file);
     }
 
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() content files added");
+#endif
+
     StringsVector groundcover = variables["groundcover"].as<StringsVector>();
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() groundcover read OK");
+#endif
     for (auto& file : groundcover)
     {
         engine.addGroundcoverFile(file);
@@ -136,6 +214,10 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
         Log(Debug::Warning) << "Lua scripts have been specified via the old lua-scripts option and will not be loaded. "
                                "Please update them to a version which uses the new omwscripts format.";
     }
+
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() about to set startup options");
+#endif
 
     // startup-settings
     engine.setCell(variables["start"].as<std::string>());
@@ -150,6 +232,10 @@ bool parseOptions(int argc, char** argv, OMW::Engine& engine, Files::Configurati
     engine.setStartupScript(variables["script-run"].as<std::string>());
     engine.setWarningsMode(variables["script-warn"].as<int>());
     engine.setSaveGameFile(variables["load-savegame"].as<Files::MaybeQuotedPath>().u8string());
+
+#ifdef __vita__
+    Vita::breadcrumb("parseOptions() content and scripts set");
+#endif
 
     // other settings
     Fallback::Map::init(variables["fallback"].as<Fallback::FallbackMap>().mMap);
@@ -211,20 +297,40 @@ namespace
 
 int runApplication(int argc, char* argv[])
 {
+#ifdef __vita__
+    Vita::initialize();
+    Vita::breadcrumb("runApplication() enter");
+#endif
     Platform::init();
 
 #ifdef __APPLE__
     setenv("OSG_GL_TEXTURE_STORAGE", "OFF", 0);
 #endif
 
+#ifdef __vita__
+    Vita::breadcrumb("Platform::init() done");
+#endif
+
     osg::setNotifyHandler(new OSGLogHandler());
     Files::ConfigurationManager cfgMgr;
+
+#ifdef __vita__
+    Vita::breadcrumb("ConfigurationManager created");
+#endif
+
     std::unique_ptr<OMW::Engine> engine = std::make_unique<OMW::Engine>(cfgMgr);
+
+#ifdef __vita__
+    Vita::breadcrumb("Engine created");
+#endif
 
     engine->setRecastMaxLogLevel(Debug::getRecastMaxLogLevel());
 
     if (parseOptions(argc, argv, *engine, cfgMgr))
     {
+#ifdef __vita__
+        Vita::breadcrumb("parseOptions() done, starting engine");
+#endif
         if (!Misc::checkRequiredOSGPluginsArePresent())
             return 1;
 
@@ -234,12 +340,20 @@ int runApplication(int argc, char* argv[])
     return 0;
 }
 
-#ifdef ANDROID
+#if defined(ANDROID)
 extern "C" int SDL_main(int argc, char** argv)
 #else
 int main(int argc, char** argv)
 #endif
 {
+#ifdef __vita__
+    // Volatile read prevents the compiler from optimizing this away,
+    // which keeps the .data section containing sceUserMainThreadStackSize
+    // reachable from main() — a GC root — preventing --gc-sections from
+    // stripping it.  The Vita loader reads this symbol to set the main
+    // thread's stack size (default is only 256KB, we need 2MB).
+    (void)*(volatile unsigned int*)&sceUserMainThreadStackSize;
+#endif
     return Debug::wrapApplication(&runApplication, argc, argv, "OpenMW");
 }
 

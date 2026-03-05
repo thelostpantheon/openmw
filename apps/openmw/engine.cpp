@@ -14,6 +14,13 @@
 #include <components/debug/debuglog.hpp>
 #include <components/debug/gldebug.hpp>
 
+#ifdef __vita__
+#include "vita/VitaInit.h"
+#define VITA_CRUMB(msg) Vita::breadcrumb(msg)
+#else
+#define VITA_CRUMB(msg)
+#endif
+
 #include <components/misc/rng.hpp>
 #include <components/misc/strings/format.hpp>
 
@@ -506,7 +513,11 @@ void OMW::Engine::createWindow()
         posY = SDL_WINDOWPOS_UNDEFINED_DISPLAY(screen);
     }
 
+#ifdef __vita__
+    Uint32 flags = SDL_WINDOW_SHOWN;
+#else
     Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
+#endif
     if (windowMode == Settings::WindowMode::Fullscreen)
         flags |= SDL_WINDOW_FULLSCREEN;
     else if (windowMode == Settings::WindowMode::WindowedFullscreen)
@@ -691,6 +702,18 @@ void OMW::Engine::createWindow()
     mViewer->realize();
     mGlMaxTextureImageUnits = identifyOp->getMaxTextureImageUnits();
 
+#ifdef __vita__
+    // Enable OSG matrix uniforms and vertex attribute aliasing for custom GLSL shaders.
+    // Matrix uniforms: OSG provides osg_ModelViewProjectionMatrix, osg_ModelViewMatrix, osg_NormalMatrix.
+    // Attribute aliasing: OSG maps glVertexPointer->glVertexAttribPointer(0), etc., so custom shaders
+    // receive vertex data through generic attribute slots instead of FFP-only arrays.
+    if (auto* gc = mViewer->getCamera()->getGraphicsContext())
+    {
+        gc->getState()->setUseModelViewAndProjectionUniforms(true);
+        gc->getState()->setUseVertexAttributeAliasing(true);
+    }
+#endif
+
     mViewer->getEventQueue()->getCurrentEventState()->setWindowRectangle(
         0, 0, graphicsWindow->getTraits()->width, graphicsWindow->getTraits()->height);
 }
@@ -722,6 +745,7 @@ void OMW::Engine::setWindowIcon()
 
 void OMW::Engine::prepareEngine()
 {
+    VITA_CRUMB("prepareEngine() enter");
     mStateManager = std::make_unique<MWState::StateManager>(mCfgMgr.getUserDataPath() / "saves", mContentFiles);
     mEnvironment.setStateManager(*mStateManager);
 
@@ -732,6 +756,10 @@ void OMW::Engine::prepareEngine()
     osg::ref_ptr<osg::Group> rootNode(new osg::Group);
     mViewer->setSceneData(rootNode);
 
+    VITA_CRUMB("prepareEngine() createWindow");
+#ifdef __vita__
+    Vita::logMemoryStatus("Pre-createWindow");
+#endif
     createWindow();
 
     mVFS = std::make_unique<VFS::Manager>();
@@ -741,8 +769,12 @@ void OMW::Engine::prepareEngine()
     mResourceSystem = std::make_unique<Resource::ResourceSystem>(
         mVFS.get(), Settings::cells().mCacheExpiryDelay, &mEncoder.get()->getStatelessEncoder());
     mResourceSystem->getSceneManager()->getShaderManager().setMaxTextureUnits(mGlMaxTextureImageUnits);
+#ifdef __vita__
+    mResourceSystem->getSceneManager()->setUnRefImageDataAfterApply(true); // release CPU-side image after GPU upload
+#else
     mResourceSystem->getSceneManager()->setUnRefImageDataAfterApply(
         false); // keep to Off for now to allow better state sharing
+#endif
     mResourceSystem->getSceneManager()->setFilterSettings(Settings::general().mTextureMagFilter,
         Settings::general().mTextureMinFilter, Settings::general().mTextureMipmap,
         static_cast<float>(Settings::general().mAnisotropy));
@@ -808,6 +840,10 @@ void OMW::Engine::prepareEngine()
 
     osg::GLExtensions& exts = SceneUtil::getGLExtensions();
     bool shadersSupported = exts.glslLanguageVersion >= 1.2f;
+#ifdef __vita__
+    // vitaGL cannot compile OpenMW's GLSL shaders — force fixed-function path
+    shadersSupported = false;
+#endif
 
 #if OSG_VERSION_LESS_THAN(3, 6, 6)
     // hack fix for https://github.com/openscenegraph/OpenSceneGraph/issues/1028
@@ -821,20 +857,30 @@ void OMW::Engine::prepareEngine()
     mStereoManager->disableStereoForNode(guiRoot);
     rootNode->addChild(guiRoot);
 
+#ifdef __vita__
+    Vita::logMemoryStatus("Post-VFS");
+#endif
+    VITA_CRUMB("prepareEngine() creating WindowManager");
     mWindowManager = std::make_unique<MWGui::WindowManager>(mWindow, mViewer, guiRoot, mResourceSystem.get(),
         mWorkQueue.get(), mCfgMgr.getLogPath(), mScriptConsoleMode, mTranslationDataStorage, mEncoding, mExportFonts,
         Version::getOpenmwVersionDescription(), shadersSupported, mCfgMgr);
     mEnvironment.setWindowManager(*mWindowManager);
 
+    VITA_CRUMB("prepareEngine() creating InputManager");
     mInputManager = std::make_unique<MWInput::InputManager>(mWindow, mViewer, mScreenCaptureHandler, keybinderUser,
         keybinderUserExists, userGameControllerdb, gameControllerdb, mGrab);
     mEnvironment.setInputManager(*mInputManager);
 
     // Create sound system
+#ifdef __vita__
+    Vita::logMemoryStatus("Post-WindowManager");
+#endif
+    VITA_CRUMB("prepareEngine() creating SoundManager");
     mSoundManager = std::make_unique<MWSound::SoundManager>(mVFS.get(), mUseSound);
     mEnvironment.setSoundManager(*mSoundManager);
 
     // Create the world
+    VITA_CRUMB("prepareEngine() creating World");
     mWorld = std::make_unique<MWWorld::World>(
         mResourceSystem.get(), mActivationDistanceOverride, mCellName, mCfgMgr.getUserDataPath());
     mEnvironment.setWorld(*mWorld);
@@ -843,6 +889,16 @@ void OMW::Engine::prepareEngine()
 
     Loading::Listener* listener = MWBase::Environment::get().getWindowManager()->getLoadingScreen();
     Loading::AsyncListener asyncListener(*listener);
+#ifdef __vita__
+    Vita::logMemoryStatus("Pre-data-load");
+    VITA_CRUMB("prepareEngine() loading data sync");
+    // Load data synchronously on Vita — saves async thread stack (~1MB)
+    listener->loadingOn();
+    mWorld->loadData(mFileCollections, mContentFiles, mGroundcoverFiles, mEncoder.get(), &asyncListener);
+    listener->loadingOff();
+    Vita::logMemoryStatus("Post-data-load");
+#else
+    VITA_CRUMB("prepareEngine() loading data async");
     auto dataLoading = std::async(std::launch::async,
         [&] { mWorld->loadData(mFileCollections, mContentFiles, mGroundcoverFiles, mEncoder.get(), &asyncListener); });
 
@@ -861,8 +917,18 @@ void OMW::Engine::prepareEngine()
         dataLoading.get();
     }
     listener->loadingOff();
+#endif
+    VITA_CRUMB("prepareEngine() data loaded");
 
+    VITA_CRUMB("prepareEngine() world init");
+#ifdef __vita__
+    Vita::logMemoryStatus("Pre-World::init");
+#endif
     mWorld->init(mMaxRecastLogLevel, mViewer, std::move(rootNode), mWorkQueue.get(), *mUnrefQueue);
+#ifdef __vita__
+    Vita::logMemoryStatus("Post-World::init");
+#endif
+    VITA_CRUMB("prepareEngine() world init done");
     mEnvironment.setWorldScene(mWorld->getWorldScene());
     mWorld->setupPlayer();
     mWorld->setRandomSeed(mRandomSeed);
@@ -879,7 +945,13 @@ void OMW::Engine::prepareEngine()
     });
 
     mWindowManager->setStore(mWorld->getStore());
+#ifdef __vita__
+    Vita::logMemoryStatus("Pre-initUI");
+#endif
     mWindowManager->initUI();
+#ifdef __vita__
+    Vita::logMemoryStatus("Post-initUI");
+#endif
 
     // Load translation data
     mTranslationDataStorage.setEncoder(mEncoder.get());
@@ -922,11 +994,18 @@ void OMW::Engine::prepareEngine()
                              << 100 * static_cast<double>(result.second) / result.first << "%)";
     }
 
+#ifdef __vita__
+    Vita::logMemoryStatus("Pre-LuaInit");
+#endif
     mLuaManager->loadPermanentStorage(mCfgMgr.getUserConfigPath());
     mLuaManager->init();
 
     // starts a separate lua thread if "lua num threads" > 0
     mLuaWorker = std::make_unique<MWLua::Worker>(*mLuaManager);
+#ifdef __vita__
+    Vita::logMemoryStatus("Post-LuaInit");
+#endif
+    VITA_CRUMB("prepareEngine() done");
 }
 
 // Initialise and enter main loop.
@@ -950,8 +1029,15 @@ void OMW::Engine::go()
     mEncoder = std::make_unique<ToUTF8::Utf8Encoder>(mEncoding);
 
     // Setup viewer
+    VITA_CRUMB("go() creating viewer");
     mViewer = new osgViewer::Viewer;
     mViewer->setReleaseContextAtEndOfFrameHint(false);
+
+#ifdef __vita__
+    // Force single-threaded rendering — no separate cull/draw threads.
+    // Saves ~1-2MB thread stack memory on Vita's 192MB heap.
+    mViewer->setThreadingModel(osgViewer::ViewerBase::SingleThreaded);
+#endif
 
     // Do not try to outsmart the OS thread scheduler (see bug #4785).
     mViewer->setUseConfigureAffinity(false);
@@ -995,6 +1081,7 @@ void OMW::Engine::go()
         Resource::collectStatistics(*mViewer);
 
     // Start the game
+    VITA_CRUMB("go() starting game");
     if (!mSaveGameFile.empty())
     {
         mStateManager->loadGame(mSaveGameFile);
@@ -1002,6 +1089,7 @@ void OMW::Engine::go()
     else if (!mSkipMenu)
     {
         // start in main menu
+        VITA_CRUMB("go() pushing main menu");
         mWindowManager->pushGuiMode(MWGui::GM_MainMenu);
 
         if (mVFS->exists(MWSound::titleMusic))
@@ -1024,6 +1112,7 @@ void OMW::Engine::go()
     }
 
     // Start the main rendering loop
+    VITA_CRUMB("go() entering main loop");
     MWWorld::DateTimeManager& timeManager = *mWorld->getTimeManager();
     Misc::FrameRateLimiter frameRateLimiter = Misc::makeFrameRateLimiter(mEnvironment.getFrameRateLimit());
     const std::chrono::steady_clock::duration maxSimulationInterval(std::chrono::milliseconds(200));

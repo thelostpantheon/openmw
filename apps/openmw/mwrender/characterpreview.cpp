@@ -154,8 +154,13 @@ namespace MWRender
 
     public:
         CharacterPreviewRTTNode(uint32_t sizeX, uint32_t sizeY)
+#ifdef __vita__
+            : RTTNode(sizeX, sizeY, 0, false, 0,
+                StereoAwareness::Unaware_MultiViewShaders, false)
+#else
             : RTTNode(sizeX, sizeY, Settings::video().mAntialiasing, false, 0,
                 StereoAwareness::Unaware_MultiViewShaders, shouldAddMSAAIntermediateTarget())
+#endif
             , mAspectRatio(static_cast<float>(sizeX) / static_cast<float>(sizeY))
         {
             if (SceneUtil::AutoDepth::isReversed())
@@ -165,8 +170,13 @@ namespace MWRender
                 mPerspectiveMatrix = osg::Matrixf::perspective(fovYDegrees, mAspectRatio, znear, zfar);
             mGroup->getOrCreateStateSet()->addUniform(new osg::Uniform("projectionMatrix", mPerspectiveMatrix));
             mViewMatrix = osg::Matrixf::identity();
+#ifdef __vita__
+            setColorBufferInternalFormat(GL_RGBA);
+            setDepthBufferInternalFormat(GL_DEPTH_COMPONENT16);
+#else
             setColorBufferInternalFormat(GL_RGBA);
             setDepthBufferInternalFormat(GL_DEPTH24_STENCIL8);
+#endif
         }
 
         void setDefaults(osg::Camera* camera) override
@@ -390,7 +400,11 @@ namespace MWRender
 
     InventoryPreview::InventoryPreview(
         osg::Group* parent, Resource::ResourceSystem* resourceSystem, const MWWorld::Ptr& character)
+#ifdef __vita__
+        : CharacterPreview(parent, resourceSystem, character, 128, 128, osg::Vec3f(0, 700, 64), osg::Vec3f(0, 0, 64))
+#else
         : CharacterPreview(parent, resourceSystem, character, 512, 1024, osg::Vec3f(0, 700, 71), osg::Vec3f(0, 0, 71))
+#endif
     {
     }
 
@@ -530,7 +544,11 @@ namespace MWRender
 
     RaceSelectionPreview::RaceSelectionPreview(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
         : CharacterPreview(
+#ifdef __vita__
+            parent, resourceSystem, MWMechanics::getPlayer(), 128, 128, osg::Vec3f(0, 125, 8), osg::Vec3f(0, 0, 8))
+#else
             parent, resourceSystem, MWMechanics::getPlayer(), 512, 512, osg::Vec3f(0, 125, 8), osg::Vec3f(0, 0, 8))
+#endif
         , mBase(*mCharacter.get<ESM::NPC>()->mBase)
         , mRef(ESM::makeBlankCellRef(), &mBase)
         , mPitchRadians(osg::DegreesToRadians(6.f))

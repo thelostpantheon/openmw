@@ -3,6 +3,14 @@ set(OPENMW_SOURCES
     options.cpp
 )
 
+if(VITA)
+    list(APPEND OPENMW_SOURCES
+        vita/VitaInit.cpp
+        vita/VitaIme.cpp
+        vita/ffmpeg_tx_stubs.c
+    )
+endif()
+
 set(OPENMW_RESOURCES
     ${CMAKE_SOURCE_DIR}/files/windows/openmw.rc
     ${CMAKE_SOURCE_DIR}/files/windows/openmw.exe.manifest
@@ -160,6 +168,13 @@ if(BUILD_OPENMW)
     if (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
         set_target_properties(openmw PROPERTIES ENABLE_EXPORTS ON)
     endif()
+
+    # vita_create_self expects the ELF in CMAKE_CURRENT_BINARY_DIR
+    if (VITA)
+        set_target_properties(openmw PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+        )
+    endif()
 endif()
 
 # Sound stuff - here so CMake doesn't stupidly recompile EVERYTHING
@@ -221,6 +236,33 @@ if (ANDROID)
     target_link_libraries(openmw-lib EGL android log z)
 endif (ANDROID)
 
+if (VITA)
+    # OSG components excluded from USED_OSG_COMPONENTS but still referenced by code
+    target_link_libraries(openmw-lib
+        "${CMAKE_BINARY_DIR}/_deps/osg-build/lib/libosgParticle.a"
+        "${CMAKE_BINARY_DIR}/_deps/osg-build/lib/libosgShadow.a"
+    )
+    # FFmpeg's libavcodec links libmp3lame for MP3 encoding support
+    target_link_libraries(openmw-lib mp3lame)
+    # Vita system libraries needed by vitaGL
+    target_link_libraries(openmw-lib
+        vitashark
+        mathneon
+        SceShaccCgExt
+        SceShaccCg_stub
+        SceKernelDmacMgr_stub
+        SceSblSsMgr_stub
+        taihen_stub
+        SceKernelModulemgr_stub
+        SceSysmem_stub
+        SceVshBridge_stub
+    )
+    # OpenAL audio backend needs SCE audio port functions
+    target_link_libraries(openmw-lib
+        SceAudio_stub
+    )
+endif()
+
 if (USE_SYSTEM_TINYXML)
     target_link_libraries(openmw-lib ${TinyXML_LIBRARIES})
 endif()
@@ -273,4 +315,45 @@ endif()
 
 if (WIN32 AND BUILD_OPENMW)
     INSTALL(TARGETS openmw RUNTIME DESTINATION ".")
+endif()
+
+if (VITA AND BUILD_OPENMW)
+    include("${VITASDK}/share/vita.cmake" REQUIRED)
+
+    if(NOT VITA_TITLEID)
+        set(VITA_TITLEID "OMWV00001")
+    endif()
+    if(NOT VITA_APP_NAME)
+        set(VITA_APP_NAME "OpenMW")
+    endif()
+
+    # Convert ELF to Vita SELF (eboot.bin)
+    vita_create_self(eboot.bin openmw
+        UNSAFE
+        NOASLR
+    )
+
+    # LiveArea assets
+    set(VITA_DATA_DIR ${CMAKE_SOURCE_DIR}/data/vita)
+
+    # Create VPK package
+    vita_create_vpk(openmw.vpk ${VITA_TITLEID} eboot.bin
+        VERSION 01.00
+        NAME ${VITA_APP_NAME}
+        FILE ${CMAKE_SOURCE_DIR}/apps/openmw/vita/openmw.cfg openmw.cfg
+        FILE ${CMAKE_BINARY_DIR}/defaults.bin defaults.bin
+        FILE ${CMAKE_SOURCE_DIR}/apps/openmw/vita/settings.cfg settings.cfg
+        FILE ${VITA_DATA_DIR}/sce_sys/icon0.png sce_sys/icon0.png
+        FILE ${VITA_DATA_DIR}/sce_sys/pic0.png sce_sys/pic0.png
+        FILE ${VITA_DATA_DIR}/sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
+        FILE ${VITA_DATA_DIR}/sce_sys/livearea/contents/bg0.png sce_sys/livearea/contents/bg0.png
+        FILE ${VITA_DATA_DIR}/sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
+    )
+
+    # Add resources directory to VPK after packaging
+    add_custom_command(TARGET openmw.vpk-vpk POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_BINARY_DIR}
+            zip -r -0 ${CMAKE_CURRENT_BINARY_DIR}/openmw.vpk resources/
+        COMMENT "Adding resources to VPK"
+    )
 endif()

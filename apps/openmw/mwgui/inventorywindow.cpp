@@ -91,6 +91,7 @@ namespace MWGui
         , mGuiMode(GM_Inventory)
         , mLastXSize(0)
         , mLastYSize(0)
+
         , mPreview(std::make_unique<MWRender::InventoryPreview>(parent, resourceSystem, MWMechanics::getPlayer()))
         , mTrading(false)
         , mUpdateNextFrame(false)
@@ -118,7 +119,12 @@ namespace MWGui
 
         mAvatarImage->eventMouseButtonClick += MyGUI::newDelegate(this, &InventoryWindow::onAvatarClicked);
         mAvatarImage->setRenderItemTexture(mPreviewTexture.get());
+#ifdef __vita__
+        // vitaGL with HAVE_UNFLIPPED_FBOS renders FBOs top-to-bottom; flip Y
+        mAvatarImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
+#else
         mAvatarImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
+#endif
 
         getWidget(mItemView, "ItemView");
         mItemView->eventItemClicked += MyGUI::newDelegate(this, &InventoryWindow::onItemSelected);
@@ -554,9 +560,15 @@ namespace MWGui
     {
         const MyGUI::IntSize viewport = getPreviewViewportSize();
         mPreview->setViewport(viewport.width, viewport.height);
+#ifdef __vita__
+        mAvatarImage->getSubWidgetMain()->_setUVSet(
+            MyGUI::FloatRect(0.f, viewport.height / float(mPreview->getTextureHeight()),
+                viewport.width / float(mPreview->getTextureWidth()), 0.f));
+#else
         mAvatarImage->getSubWidgetMain()->_setUVSet(
             MyGUI::FloatRect(0.f, 0.f, viewport.width / float(mPreview->getTextureWidth()),
                 viewport.height / float(mPreview->getTextureHeight())));
+#endif
     }
 
     void InventoryWindow::onNameFilterChanged(MyGUI::EditBox* sender)
@@ -785,7 +797,6 @@ namespace MWGui
     void InventoryWindow::dirtyPreview()
     {
         mPreview->update();
-
         updateArmorRating();
     }
 

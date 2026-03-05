@@ -1,0 +1,86 @@
+#!/bin/bash
+# Build/install ICU for OpenMW Vita port
+# Uses vitasdk/packages if available, otherwise builds from source
+# ICU requires a two-stage build: host tools first, then cross-compile
+set -e
+
+VITASDK="${VITASDK:-/usr/local/vitasdk}"
+SYSROOT="${VITASDK}/arm-vita-eabi"
+
+echo "=== Installing ICU for Vita ==="
+
+# Check if vdpm is available
+if command -v vdpm &> /dev/null; then
+    echo "Using vdpm to install ICU..."
+    vdpm icu4c
+    echo "=== ICU installed via vdpm ==="
+    exit 0
+fi
+
+# Manual build fallback
+WORKDIR="${1:-$(pwd)/vita-deps-build/icu}"
+ICU_VERSION="73-2"
+ICU_VERSION_DASH="73.2"
+
+echo "Building ICU ${ICU_VERSION_DASH} from source..."
+echo "Work dir: ${WORKDIR}"
+
+mkdir -p "${WORKDIR}"
+cd "${WORKDIR}"
+
+if [ ! -f icu_done ]; then
+    if [ ! -f "icu4c-${ICU_VERSION}-src.tgz" ]; then
+        wget -q "https://github.com/unicode-org/icu/releases/download/release-${ICU_VERSION}/icu4c-${ICU_VERSION//-/_}-src.tgz" -O "icu4c-${ICU_VERSION}-src.tgz"
+    fi
+
+    tar xf "icu4c-${ICU_VERSION}-src.tgz"
+
+    # Stage 1: Build host tools (needed for data generation)
+    echo "--- Stage 1: Building host ICU tools ---"
+    mkdir -p build-host
+    cd build-host
+    ../icu/source/runConfigureICU Linux \
+        --disable-shared \
+        --enable-static \
+        --disable-extras \
+        --disable-tests \
+        --disable-samples
+    make -j$(nproc)
+    cd ..
+
+    # Stage 2: Cross-compile for Vita
+    echo "--- Stage 2: Cross-compiling ICU for Vita ---"
+    mkdir -p build-vita
+    cd build-vita
+
+    CC="${VITASDK}/bin/arm-vita-eabi-gcc" \
+    CXX="${VITASDK}/bin/arm-vita-eabi-g++" \
+    AR="${VITASDK}/bin/arm-vita-eabi-ar" \
+    RANLIB="${VITASDK}/bin/arm-vita-eabi-ranlib" \
+    CFLAGS="-O2 -fno-PIC" \
+    CXXFLAGS="-O2 -fno-PIC" \
+    ../icu/source/configure \
+        --host=arm-vita-eabi \
+        --prefix="${SYSROOT}" \
+        --with-cross-build="$(pwd)/../build-host" \
+        --enable-static \
+        --disable-shared \
+        --disable-extras \
+        --disable-strict \
+        --disable-icuio \
+        --disable-layout \
+        --disable-layoutex \
+        --disable-tools \
+        --disable-tests \
+        --disable-samples \
+        --disable-dyload \
+        --with-data-packaging=archive
+
+    make -j$(nproc)
+    make install
+
+    cd ..
+    touch icu_done
+fi
+
+echo "=== ICU installation complete ==="

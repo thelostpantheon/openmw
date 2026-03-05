@@ -2,6 +2,10 @@
 
 #include <SDL_video.h>
 
+#ifdef __vita__
+#include <vitaGL.h>
+#endif
+
 #ifdef OPENMW_GL4ES_MANUAL_INIT
 #include "gl4esinit.h"
 #endif
@@ -56,6 +60,10 @@ namespace SDLUtil
         if (!mWindow)
             return false;
 
+#ifdef __vita__
+        // Fixed resolution on Vita
+        (void)x; (void)y; (void)width; (void)height;
+#else
         int w, h;
         SDL_GetWindowSize(mWindow, &w, &h);
         int dw, dh;
@@ -63,6 +71,7 @@ namespace SDLUtil
 
         SDL_SetWindowPosition(mWindow, x, y);
         SDL_SetWindowSize(mWindow, width / (dw / w), height / (dh / h));
+#endif
         return true;
     }
 
@@ -98,6 +107,52 @@ namespace SDLUtil
             return;
         }
 
+#ifdef __vita__
+        // vitaGL direct initialization — SDL2 Vita has no GL backend
+        // Custom GLSL shaders use fewer GXM parameters per draw than FFP megashader,
+        // but scenes with many draw calls can still exhaust the buffer causing GPU stalls.
+        // 12MB balances headroom vs memory (from vitaGL pool, not newlib heap).
+        vglSetParamBufferSize(12 * 1024 * 1024);
+        vglUseTripleBuffering(GL_TRUE);
+        vglWaitVblankStart(GL_FALSE); // We have our own 30fps framerate limiter
+        // Render at 640x368 — hardware scaler upscales to 960x544.
+        // Reduces fragment workload by ~55% (235K pixels vs 522K).
+        // Use custom sizes to limit CDRAM grab. vglInitExtended takes ALL CDRAM
+        // by default (112MB!). We only need ~16MB for display + depth buffers.
+        // NOTE: vitaGL allocates pools via sceKernelAllocMemBlock, NOT malloc —
+        // these do NOT come from the 192MB newlib heap.
+        vglInitWithCustomSizes(0x100000, 640, 368,
+            64 * 1024 * 1024,   // RAM pool: 64MB for textures + vertex data
+            16 * 1024 * 1024,   // CDRAM pool: 16MB (display + FBO + depth only)
+            0,                   // phycont: not needed
+            0,                   // cdlg: not needed
+            SCE_GXM_MULTISAMPLE_NONE);
+        vglUseVram(GL_FALSE); // Prefer main RAM for textures
+        // Initialize runtime shader compiler for FFP shader generation
+        vglSetupRuntimeShaderCompiler(SHARK_OPT_FAST, 1, 0, 1);
+
+        // Clear framebuffer to black immediately so the display doesn't show
+        // uninitialized white memory while FFP shaders compile on first run.
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        vglSwapBuffers(GL_FALSE);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        vglSwapBuffers(GL_FALSE);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        vglSwapBuffers(GL_FALSE);
+
+        _traits->width = 640;
+        _traits->height = 368;
+        _traits->red = 8;
+        _traits->green = 8;
+        _traits->blue = 8;
+        _traits->alpha = 8;
+        _traits->depth = 32;
+        _traits->stencil = 8;
+        _traits->doubleBuffer = true;
+        _traits->sampleBuffers = 0;
+        _traits->samples = 0;
+#else
         // SDL will change the current context when it creates a new one, so we
         // have to get the current one to be able to restore it afterward.
         SDL_Window* oldWin = SDL_GL_GetCurrentWindow();
@@ -161,6 +216,7 @@ namespace SDLUtil
         _traits->samples = intermediateLocation;
 
         SDL_GL_MakeCurrent(oldWin, oldCtx);
+#endif // !__vita__
 
         mValid = true;
 
@@ -197,7 +253,11 @@ namespace SDLUtil
             return false;
         }
 
+#ifdef __vita__
+        return true;
+#else
         return SDL_GL_MakeCurrent(mWindow, mContext) == 0;
+#endif
     }
 
     bool GraphicsWindowSDL2::releaseContextImplementation()
@@ -208,13 +268,19 @@ namespace SDLUtil
             return false;
         }
 
+#ifdef __vita__
+        return true;
+#else
         return SDL_GL_MakeCurrent(nullptr, nullptr) == 0;
+#endif
     }
 
     void GraphicsWindowSDL2::closeImplementation()
     {
+#ifndef __vita__
         if (mContext)
             SDL_GL_DeleteContext(mContext);
+#endif
         mContext = nullptr;
 
         if (mWindow && mOwnsWindow)
@@ -230,7 +296,11 @@ namespace SDLUtil
         if (!mRealized)
             return;
 
+#ifdef __vita__
+        vglSwapBuffers(GL_FALSE);
+#else
         SDL_GL_SwapWindow(mWindow);
+#endif
     }
 
     void GraphicsWindowSDL2::setSyncToVBlank(bool on)
@@ -241,6 +311,7 @@ namespace SDLUtil
 
     void GraphicsWindowSDL2::setSyncToVBlank(VSyncMode mode)
     {
+#ifndef __vita__
         SDL_Window* oldWin = SDL_GL_GetCurrentWindow();
         SDL_GLContext oldCtx = SDL_GL_GetCurrentContext();
 
@@ -249,12 +320,19 @@ namespace SDLUtil
         setSwapInterval(mode);
 
         SDL_GL_MakeCurrent(oldWin, oldCtx);
+#else
+        setSwapInterval(mode);
+#endif
     }
 
     void GraphicsWindowSDL2::setSwapInterval(VSyncMode mode)
     {
         mVSyncMode = mode;
 
+#ifdef __vita__
+        // vitaGL handles vsync via vglSwapBuffers parameter
+        (void)mode;
+#else
         if (mode == VSyncMode::Adaptive)
         {
             if (SDL_GL_SetSwapInterval(-1) == -1)
@@ -275,6 +353,7 @@ namespace SDLUtil
         {
             SDL_GL_SetSwapInterval(0);
         }
+#endif
     }
 
     void GraphicsWindowSDL2::raiseWindow()

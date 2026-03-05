@@ -196,7 +196,7 @@ namespace MWRender
         if (!ext->glDisablei && ext->glDisableIndexedEXT)
             ext->glDisablei = ext->glDisableIndexedEXT;
 
-#ifdef ANDROID
+#if defined(ANDROID) || defined(__vita__)
         ext->glDisablei = nullptr;
 #endif
 
@@ -774,7 +774,7 @@ namespace MWRender
                 return technique;
 
         std::string name;
-        if (mTechniqueFiles.contains(path))
+        if (mTechniqueFiles.find(VFS::Path::Normalized(path)) != mTechniqueFiles.end())
             name = mVFS->getStem(path);
         else
             name = path.stem();

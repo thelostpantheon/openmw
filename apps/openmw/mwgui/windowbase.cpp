@@ -104,6 +104,33 @@ void WindowBase::center()
     mMainWidget->setCoord(coord);
 }
 
+void WindowBase::setActiveControllerWindow(bool active)
+{
+    mActiveControllerWindow = active;
+#ifdef __vita__
+    if (active)
+    {
+        MWBase::WindowManager* wm = MWBase::Environment::get().getWindowManager();
+        if (!wm)
+            return;
+        int maxHeight = wm->getControllerMenuHeight();
+        MyGUI::IntCoord coord = mMainWidget->getCoord();
+        int bottom = coord.top + coord.height;
+        if (bottom > maxHeight)
+        {
+            int newTop = maxHeight - coord.height;
+            if (newTop < 0)
+            {
+                newTop = 0;
+                coord.height = maxHeight;
+            }
+            coord.top = newTop;
+            mMainWidget->setCoord(coord);
+        }
+    }
+#endif
+}
+
 void WindowBase::clampWindowCoordinates(MyGUI::Window* window)
 {
     MyGUI::IntSize viewSize = MyGUI::RenderManager::getInstance().getViewSize();

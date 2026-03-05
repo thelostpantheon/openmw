@@ -107,7 +107,14 @@ namespace MWPhysics
     {
         mResourceSystem->addResourceManager(mShapeManager.get());
 
+#ifdef __vita__
+        btDefaultCollisionConstructionInfo cci;
+        cci.m_defaultMaxPersistentManifoldPoolSize = 512;
+        cci.m_defaultMaxCollisionAlgorithmPoolSize = 512;
+        mCollisionConfiguration = std::make_unique<btDefaultCollisionConfiguration>(cci);
+#else
         mCollisionConfiguration = std::make_unique<btDefaultCollisionConfiguration>();
+#endif
         mDispatcher = std::make_unique<btCollisionDispatcher>(mCollisionConfiguration.get());
         mBroadphase = std::make_unique<btDbvtBroadphase>();
 

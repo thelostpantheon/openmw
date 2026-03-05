@@ -27,6 +27,10 @@
 
 #include <components/nifosg/particle.hpp>
 
+#ifdef __vita__
+#include <osg/Uniform>
+#endif
+
 #include "../mwworld/datetimemanager.hpp"
 #include "../mwworld/weather.hpp"
 
@@ -265,10 +269,19 @@ namespace MWRender
         mSkyRootNode = new CameraRelativeTransform;
         mSkyRootNode->setName("Sky Root");
         // Assign empty program to specify we don't want shaders when we are rendering in FFP pipeline
+#ifndef __vita__
+        // On Vita, an empty osg::Program puts vitaGL into custom shader mode, causing crashes.
         if (!mSceneManager->getForceShaders())
             mSkyRootNode->getOrCreateStateSet()->setAttributeAndModes(new osg::Program(),
                 osg::StateAttribute::OVERRIDE | osg::StateAttribute::PROTECTED | osg::StateAttribute::ON);
+#endif
         mSceneManager->setUpNormalsRTForStateSet(mSkyRootNode->getOrCreateStateSet(), false);
+#ifdef __vita__
+        // VitaLit always computes fog, but sky should be unfogged.
+        // Override fog uniforms so fogFactor is always ~1.0 (no fog).
+        mSkyRootNode->getOrCreateStateSet()->addUniform(new osg::Uniform("u_fogStart", 0.f));
+        mSkyRootNode->getOrCreateStateSet()->addUniform(new osg::Uniform("u_fogEnd", 1000000.f));
+#endif
         SceneUtil::ShadowManager::instance().disableShadowsForStateSet(*mSkyRootNode->getOrCreateStateSet());
         parentNode->addChild(mSkyRootNode);
 

@@ -6,6 +6,13 @@
 
 #include <components/debug/debuglog.hpp>
 
+#ifdef __vita__
+#include "../vita/VitaInit.h"
+#define VITA_CRUMB(msg) Vita::breadcrumb(msg)
+#else
+#define VITA_CRUMB(msg)
+#endif
+
 #include <components/esm3/actoridconverter.hpp>
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
@@ -163,6 +170,7 @@ MWState::StateManager::State MWState::StateManager::getState() const
 
 void MWState::StateManager::newGame(bool bypass)
 {
+    VITA_CRUMB("newGame() enter");
     cleanup();
 
     if (!bypass)
@@ -171,14 +179,18 @@ void MWState::StateManager::newGame(bool bypass)
     try
     {
         Log(Debug::Info) << "Starting a new game";
+        VITA_CRUMB("newGame() addStartup");
         MWBase::Environment::get().getScriptManager()->getGlobalScripts().addStartup();
+        VITA_CRUMB("newGame() startNewGame");
         MWBase::Environment::get().getWorld()->startNewGame(bypass);
+        VITA_CRUMB("newGame() startNewGame done");
 
         mState = State_Running;
         MWBase::Environment::get().getLuaManager()->gameLoaded();
 
         MWBase::Environment::get().getWindowManager()->fadeScreenOut(0);
         MWBase::Environment::get().getWindowManager()->fadeScreenIn(1);
+        VITA_CRUMB("newGame() done");
     }
     catch (std::exception& e)
     {

@@ -204,9 +204,13 @@ namespace MWLua
         std::erase_if(mActiveLocalScripts,
             [](const LocalScripts* l) { return l->getPtrOrEmpty().isEmpty() || l->getPtrOrEmpty().mRef->isDeleted(); });
 
+#ifndef __vita__
+        // Profiler is disabled on Vita; statsNextFrame only updates instruction count
+        // averages that are never displayed. Skip iterating all active scripts.
         mGlobalScripts.statsNextFrame();
         for (LocalScripts* scripts : mActiveLocalScripts)
             scripts->statsNextFrame();
+#endif
 
         mLuaEvents.finalizeEventBatch();
 
@@ -348,7 +352,8 @@ namespace MWLua
     {
         LuaUi::clearGameInterface();
         mUiResourceManager.clear();
-        MWBase::Environment::get().getWorld()->getPostProcessor()->disableDynamicShaders();
+        if (auto* pp = MWBase::Environment::get().getWorld()->getPostProcessor())
+            pp->disableDynamicShaders();
         mActiveLocalScripts.clear();
         mLuaEvents.clear();
         mEngineEvents.clear();

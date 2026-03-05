@@ -32,6 +32,10 @@
 #include "../mwworld/class.hpp"
 #include "../mwworld/esmstore.hpp"
 
+#ifdef __vita__
+#include "../vita/VitaIme.h"
+#endif
+
 namespace
 {
     bool isWhitespace(MyGUI::UString::code_point c)
@@ -205,6 +209,16 @@ namespace MWGui
         // turned on and place it over other widgets
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mCommandLine);
         MyGUI::LayerManager::getInstance().upLayerItem(mMainWidget);
+
+#ifdef __vita__
+        // Vita has no keyboard — open IME for command entry
+        std::string cmd = Vita::openTextDialog("Console Command", "", 256);
+        if (!cmd.empty())
+        {
+            mCommandLine->setOnlyText(cmd);
+            acceptCommand(mCommandLine);
+        }
+#endif
     }
 
     void Console::print(const std::string& msg, std::string_view color)

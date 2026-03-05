@@ -34,7 +34,11 @@ namespace MWGui
         : WindowBase("openmw_loading_screen.layout")
         , mResourceSystem(resourceSystem)
         , mViewer(viewer)
+#ifdef __vita__
+        , mTargetFrameRate(15.0)
+#else
         , mTargetFrameRate(120.0)
+#endif
         , mLastWallpaperChangeTime(0.0)
         , mLastRenderTime(0.0)
         , mLoadingOnTime(0.0)
@@ -327,7 +331,13 @@ namespace MWGui
 
         if (!mShowWallpaper && mLastRenderTime < mLoadingOnTime)
         {
+#ifndef __vita__
+            // Vita: glReadPixels from the back buffer causes a data abort
+            // (back buffer may be in GPU-only memory). Show wallpaper instead.
             setupCopyFramebufferToTextureCallback();
+#else
+            changeWallpaper();
+#endif
         }
 
         MWBase::Environment::get().getInputManager()->update(0, true, true);

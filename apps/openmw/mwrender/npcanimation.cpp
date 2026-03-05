@@ -39,6 +39,10 @@
 #include "../mwbase/soundmanager.hpp"
 #include "../mwbase/world.hpp"
 
+#ifdef __vita__
+#include "../vita/VitaInit.h"
+#endif
+
 #include "actorutil.hpp"
 #include "postprocessor.hpp"
 #include "renderbin.hpp"
@@ -331,6 +335,14 @@ namespace MWRender
             osg::State* state = renderInfo.getState();
 
             PostProcessor* postProcessor = static_cast<PostProcessor*>(renderInfo.getCurrentCamera()->getUserData());
+
+            if (!postProcessor)
+            {
+                // No PostProcessor (e.g. Vita) — just draw normally with depth clear
+                glClear(GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+                bin->drawImplementation(renderInfo, previous);
+                return;
+            }
 
             state->applyAttribute(mDepth);
 
@@ -785,6 +797,15 @@ namespace MWRender
         catch (std::exception& e)
         {
             Log(Debug::Error) << "Error adding NPC part: " << e.what();
+#ifdef __vita__
+            {
+                char buf[256];
+                std::string meshStr(mesh.value());
+                snprintf(buf, sizeof(buf), "NPC PART FAIL: type=%d mesh=%.60s err=%.80s",
+                    (int)type, meshStr.c_str(), e.what());
+                Vita::breadcrumb(buf);
+            }
+#endif
             return false;
         }
 
