@@ -9,15 +9,6 @@ SYSROOT="${VITASDK}/arm-vita-eabi"
 
 echo "=== Installing FFmpeg for Vita ==="
 
-# Check if vdpm is available
-if command -v vdpm &> /dev/null; then
-    echo "Using vdpm to install FFmpeg..."
-    vdpm ffmpeg
-    echo "=== FFmpeg installed via vdpm ==="
-    exit 0
-fi
-
-# Manual build fallback
 WORKDIR="${1:-$(pwd)/vita-deps-build/ffmpeg}"
 FFMPEG_VERSION="6.1"
 
@@ -73,7 +64,7 @@ if [ ! -f ffmpeg_done ]; then
         --enable-parser=aac \
         --enable-parser=vorbis \
         --enable-protocol=file \
-        --extra-cflags="-Os -ftree-vectorize -fomit-frame-pointer -ffast-math -ffunction-sections -fdata-sections -fvisibility=hidden"
+        --extra-cflags="-Os -mcpu=cortex-a9 -mfpu=neon -ftree-vectorize -fomit-frame-pointer -ffunction-sections -fdata-sections -fvisibility=hidden"
 
     make -j$(nproc)
     make install

@@ -112,7 +112,7 @@ namespace SDLUtil
         // Custom GLSL shaders use fewer GXM parameters per draw than FFP megashader,
         // but scenes with many draw calls can still exhaust the buffer causing GPU stalls.
         // 12MB balances headroom vs memory (from vitaGL pool, not newlib heap).
-        vglSetParamBufferSize(12 * 1024 * 1024);
+        vglSetParamBufferSize(8 * 1024 * 1024);
         vglUseTripleBuffering(GL_TRUE);
         vglWaitVblankStart(GL_FALSE); // We have our own 30fps framerate limiter
         // Render at 640x368 — hardware scaler upscales to 960x544.
@@ -122,12 +122,12 @@ namespace SDLUtil
         // NOTE: vitaGL allocates pools via sceKernelAllocMemBlock, NOT malloc —
         // these do NOT come from the 192MB newlib heap.
         vglInitWithCustomSizes(0x100000, 640, 368,
-            64 * 1024 * 1024,   // RAM pool: 64MB for textures + vertex data
-            16 * 1024 * 1024,   // CDRAM pool: 16MB (display + FBO + depth only)
+            16 * 1024 * 1024,   // RAM pool: 16MB (vertex/index buffers + GUI)
+            48 * 1024 * 1024,   // CDRAM pool: 48MB (textures + display + depth)
             0,                   // phycont: not needed
             0,                   // cdlg: not needed
             SCE_GXM_MULTISAMPLE_NONE);
-        vglUseVram(GL_FALSE); // Prefer main RAM for textures
+        vglUseVram(GL_TRUE); // Textures in CDRAM (117MB available, separate from heap)
         // Initialize runtime shader compiler for FFP shader generation
         vglSetupRuntimeShaderCompiler(SHARK_OPT_FAST, 1, 0, 1);
 

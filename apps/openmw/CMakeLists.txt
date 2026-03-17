@@ -7,7 +7,6 @@ if(VITA)
     list(APPEND OPENMW_SOURCES
         vita/VitaInit.cpp
         vita/VitaIme.cpp
-        vita/ffmpeg_tx_stubs.c
     )
 endif()
 
@@ -174,6 +173,10 @@ if(BUILD_OPENMW)
         set_target_properties(openmw PROPERTIES
             RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
         )
+        # FFmpeg TX stubs in executable preempt libavutil.a (saves 16MB BSS).
+        target_sources(openmw PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/vita/ffmpeg_tx_stubs.c
+        )
     endif()
 endif()
 
@@ -237,11 +240,16 @@ if (ANDROID)
 endif (ANDROID)
 
 if (VITA)
-    # OSG components excluded from USED_OSG_COMPONENTS but still referenced by code
-    target_link_libraries(openmw-lib
-        "${CMAKE_BINARY_DIR}/_deps/osg-build/lib/libosgParticle.a"
-        "${CMAKE_BINARY_DIR}/_deps/osg-build/lib/libosgShadow.a"
-    )
+    # OSG libs excluded from USED_OSG_COMPONENTS but still needed for linking.
+    foreach(_osgextra osgParticle osgShadow)
+        if(NOT TARGET ${_osgextra})
+            add_library(${_osgextra} STATIC IMPORTED)
+            set_target_properties(${_osgextra} PROPERTIES
+                IMPORTED_LOCATION "${CMAKE_BINARY_DIR}/_deps/osg-build/lib/lib${_osgextra}.a")
+            add_dependencies(${_osgextra} osg)
+        endif()
+    endforeach()
+    target_link_libraries(openmw-lib osgParticle osgShadow)
     # FFmpeg's libavcodec links libmp3lame for MP3 encoding support
     target_link_libraries(openmw-lib mp3lame)
     # Vita system libraries needed by vitaGL
@@ -261,6 +269,11 @@ if (VITA)
     target_link_libraries(openmw-lib
         SceAudio_stub
     )
+    # dlopen/dlclose/dlsym stubs (osgDB::DynamicLibrary, LuaJIT)
+    target_link_libraries(openmw-lib dl)
+    # PTE (pthreads-to-eabi) — needed by OpenThreads for cleanup handlers
+    target_link_libraries(openmw-lib pthread)
+    # pthread_cancel=0 removed: broke real std::mutex init for game threads.
 endif()
 
 if (USE_SYSTEM_TINYXML)
@@ -327,10 +340,21 @@ if (VITA AND BUILD_OPENMW)
         set(VITA_APP_NAME "OpenMW")
     endif()
 
+    # Extra memory mode: +109MB RAM (Vita disables background services)
+    set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
+
     # Convert ELF to Vita SELF (eboot.bin)
     vita_create_self(eboot.bin openmw
         UNSAFE
         NOASLR
+        ATTRIBUTE 0x02000000
+    )
+
+    # Zero BSS: Vita loader doesn't zero memsz > filesz gap.
+    add_custom_command(TARGET openmw-velf POST_BUILD
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-bss.py
+            ${CMAKE_CURRENT_BINARY_DIR}/openmw.velf
+        COMMENT "Expanding BSS in VELF (zeroing uninitialized data)"
     )
 
     # LiveArea assets

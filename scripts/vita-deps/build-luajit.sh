@@ -10,15 +10,6 @@ SYSROOT="${VITASDK}/arm-vita-eabi"
 
 echo "=== Installing LuaJIT for Vita ==="
 
-# Check if vdpm is available
-if command -v vdpm &> /dev/null; then
-    echo "Using vdpm to install LuaJIT..."
-    vdpm luajit
-    echo "=== LuaJIT installed via vdpm ==="
-    exit 0
-fi
-
-# Manual build fallback
 WORKDIR="${1:-$(pwd)/vita-deps-build/luajit}"
 
 echo "Building LuaJIT from source..."

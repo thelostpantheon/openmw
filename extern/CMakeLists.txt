@@ -46,6 +46,8 @@ if(NOT OPENMW_USE_SYSTEM_BULLET)
 
     set(BULLET_INCLUDE_DIRS ${bullet_SOURCE_DIR}/src PARENT_SCOPE)
 
+    # Do NOT use -fno-exceptions on Bullet: callbacks into OpenMW can throw.
+
     # The order here is important to work around a bug in Bullet:
     # https://github.com/bulletphysics/bullet3/issues/3233
     set(BULLET_LIBRARIES BulletCollision LinearMath PARENT_SCOPE)
@@ -168,7 +170,15 @@ if(NOT OPENMW_USE_SYSTEM_OSG)
         URL_HASH SHA512=9b0a94c1c1d99c767f1857629d43c7a53bfcb74ef760993a121567831e168a1ebbfc10b0c67d7f2241c7b6c6dab2d0e6b876d9f17aca0fabe1a8c86b2279f956
         SOURCE_DIR fetched/osg
     )
+    # Vita toolchain sets CMAKE_SYSTEM_NAME=Generic, which makes UNIX false.
+    # OpenThreads needs UNIX=true to select the pthreads backend.
+    if(VITA)
+        set(UNIX TRUE)
+    endif()
     FetchContent_MakeAvailable(osg)
+    if(VITA)
+        set(UNIX FALSE)
+    endif()
 
     set(OPENSCENEGRAPH_INCLUDE_DIRS ${osg_SOURCE_DIR}/include ${osg_BINARY_DIR}/include PARENT_SCOPE)
     set(OSG_LIBRARIES OpenThreads osg PARENT_SCOPE)
@@ -273,16 +283,24 @@ endif()
 if (NOT OPENMW_USE_SYSTEM_ICU)
     set(ICU_ENV "ICU_DATA_FILTER_FILE=${CMAKE_CURRENT_SOURCE_DIR}/icufilters.json")
     if (VITA)
+        set(ICU_HOST_BUILD_DIR "${CMAKE_BINARY_DIR}/extern/icu-host-build" CACHE STRING
+            "Host ICU build directory (needed for data filtering during cross-compile)")
+        if (NOT EXISTS "${ICU_HOST_BUILD_DIR}/bin/icupkg")
+            message(FATAL_ERROR "ICU host build not found at ${ICU_HOST_BUILD_DIR}. "
+                "Build host ICU first: mkdir -p ${ICU_HOST_BUILD_DIR} && cd ${ICU_HOST_BUILD_DIR} && "
+                "${CMAKE_BINARY_DIR}/extern/fetched/icu/icu4c/source/configure "
+                "--enable-static --disable-shared --disable-extras --disable-tests --disable-samples && make -j")
+        endif()
         set(ICU_ENV
             ${ICU_ENV}
             "CC=${CMAKE_C_COMPILER}"
             "CXX=${CMAKE_CXX_COMPILER}"
             "RANLIB=${CMAKE_RANLIB}"
             "AR=${CMAKE_AR}"
-            "CFLAGS=-Os"
-            "CXXFLAGS=-Os"
+            "CFLAGS=-Os -mthumb"
+            "CXXFLAGS=-Os -mthumb"
         )
-        set(ICU_ADDITIONAL_OPTS --disable-tools --host=arm-vita-eabi)
+        set(ICU_ADDITIONAL_OPTS --disable-tools --host=arm-vita-eabi --with-cross-build=${ICU_HOST_BUILD_DIR})
     elseif (ANDROID)
         # Note: Must be a build directory, not an install root, since the configure script
         # looks for a configuration file which does not get installed.
@@ -315,6 +333,10 @@ if (NOT OPENMW_USE_SYSTEM_ICU)
         URL https://github.com/unicode-org/icu/archive/refs/tags/release-70-1.zip
         URL_HASH MD5=49d5e2e5bab93ae1a4b56e916150544c
         SOURCE_DIR fetched/icu
+        # Vita: ICU doesn't recognize arm-vita-eabi — copy mh-linux as mh-unknown
+        PATCH_COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            <SOURCE_DIR>/icu4c/source/config/mh-linux
+            <SOURCE_DIR>/icu4c/source/config/mh-unknown
         CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${ICU_ENV}
             <SOURCE_DIR>/icu4c/source/configure --enable-static --disable-shared
             --disable-tests --disable-samples --disable-icuio --disable-extras ${ICU_ADDITIONAL_OPTS}

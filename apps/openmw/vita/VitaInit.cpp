@@ -23,6 +23,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <ctime>
+#include <exception>
 #include <malloc.h>
 #include <new>
 #include <unistd.h>
@@ -34,8 +35,69 @@
 // These symbols MUST be at file scope with C linkage — the Vita loader and
 // newlib crt0 resolve them as unmangled C symbols at process startup.
 extern "C" {
+// Extra memory mode (ATTRIBUTE2=12) grants ~357MB total user RAM.
 unsigned int _newlib_heap_size_user = 224 * 1024 * 1024;
 unsigned int sceUserMainThreadStackSize = 2 * 1024 * 1024;
+
+// Write an unsigned int as decimal to fd (no heap allocation)
+static void writeUint(SceUID fd, unsigned int val)
+{
+    char buf[16];
+    int pos = 0;
+    if (val == 0) { buf[pos++] = '0'; }
+    else {
+        char tmp[16]; int t = 0;
+        while (val > 0) { tmp[t++] = '0' + (val % 10); val /= 10; }
+        while (t > 0) buf[pos++] = tmp[--t];
+    }
+    sceIoWrite(fd, buf, pos);
+}
+
+// Early heap diagnostic — runs before C++ static constructors.
+// Uses only SCE kernel calls (no malloc/snprintf).
+__attribute__((constructor(101)))
+static void vita_early_heap_check()
+{
+    sceIoMkdir("ux0:data/openmw", 0777);
+    SceUID fd = sceIoOpen("ux0:data/openmw/early_diag.log",
+        SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0777);
+    if (fd < 0) return;
+
+    sceIoWrite(fd, "=== Early heap diagnostic ===\n", 30);
+
+    // Check free memory before malloc test
+    SceKernelFreeMemorySizeInfo freeInfo;
+    freeInfo.size = sizeof(freeInfo);
+    int ret = sceKernelGetFreeMemorySize(&freeInfo);
+    sceIoWrite(fd, "getFreeMemorySize ret=", 22);
+    writeUint(fd, (unsigned int)ret);
+    sceIoWrite(fd, "\n", 1);
+    if (ret >= 0) {
+        sceIoWrite(fd, "free_user=", 10);
+        writeUint(fd, (unsigned int)freeInfo.size_user);
+        sceIoWrite(fd, " free_cdram=", 12);
+        writeUint(fd, (unsigned int)freeInfo.size_cdram);
+        sceIoWrite(fd, " free_phycont=", 14);
+        writeUint(fd, (unsigned int)freeInfo.size_phycont);
+        sceIoWrite(fd, "\n", 1);
+    }
+
+    // Test malloc
+    void* p = malloc(64);
+    if (p) {
+        sceIoWrite(fd, "malloc(64): OK\n", 15);
+        free(p);
+    } else {
+        sceIoWrite(fd, "malloc(64): FAILED\n", 19);
+    }
+
+    // Report heap size requested
+    sceIoWrite(fd, "heap_size_user=", 15);
+    writeUint(fd, _newlib_heap_size_user);
+    sceIoWrite(fd, "\n", 1);
+
+    sceIoClose(fd);
+}
 
 void vitaBreadcrumb(const char* msg)
 {
@@ -93,18 +155,6 @@ void vitaMemBreadcrumb(const char* msg)
             sceIoWrite(fd, buf, (size_t)len);
         sceIoClose(fd);
     }
-}
-
-// Runs before C++ global constructors.  Priority 101 = earliest user priority.
-// ONLY does environment setup — no file I/O (sceIo may not be ready yet).
-__attribute__((constructor(101)))
-void vitaEarlyEnvironment(void)
-{
-    setenv("TMPDIR", "ux0:data/openmw/cache", 1);
-    setenv("HOME", "ux0:data/openmw", 1);
-    setenv("OSG_NOTIFY_LEVEL", "ALWAYS", 0);
-    // NOTE: Do NOT set OSG_MAX_TEXTURE_SIZE — it triggers glCompressedTexSubImage2D
-    // for DXT textures, which is NULL in vitaGL. CPU-side halfResize handles this.
 }
 
 // Vita newlib stubs for POSIX functions referenced at link time
@@ -510,6 +560,11 @@ namespace Vita
         // makes the linker treat the section as reachable.
         asm volatile("" :: "m"(sceUserMainThreadStackSize));
 
+        // Environment setup (must be after main, not in constructors)
+        setenv("TMPDIR", "ux0:data/openmw/cache", 1);
+        setenv("HOME", "ux0:data/openmw", 1);
+        setenv("OSG_NOTIFY_LEVEL", "ALWAYS", 0);
+
         ensureDataDirectories();
 
         // Rotate logs
@@ -519,6 +574,24 @@ namespace Vita
         sceIoRename("ux0:data/openmw/debug.log", "ux0:data/openmw/debug.log.prev");
 
         breadcrumb("BOOT: Vita::initialize() start");
+
+        // Log what std::terminate is called with
+        std::set_terminate([]() {
+            breadcrumb("[TERMINATE] std::terminate called");
+            std::exception_ptr ep = std::current_exception();
+            if (ep) {
+                try { std::rethrow_exception(ep); }
+                catch (const std::exception& e) {
+                    char buf[256];
+                    snprintf(buf, sizeof(buf), "[TERMINATE] exception: %s", e.what());
+                    breadcrumb(buf);
+                }
+                catch (...) { breadcrumb("[TERMINATE] non-std exception"); }
+            } else {
+                breadcrumb("[TERMINATE] no active exception (noexcept violation?)");
+            }
+            abort();
+        });
 
         std::set_new_handler(vitaNewHandler);
         btAlignedAllocSetCustom(vitaBtAlloc, vitaBtFree);
@@ -558,6 +631,16 @@ namespace Vita
     bool isMemoryPressure(int thresholdMB)
     {
         return getHeapUsedMB() > thresholdMB;
+    }
+
+    void replenishEmergencyReserve()
+    {
+        if (!s_emergencyReserve)
+        {
+            s_emergencyReserve = malloc(EMERGENCY_RESERVE_SIZE);
+            if (s_emergencyReserve)
+                breadcrumb("[MemWatchdog] Emergency reserve replenished");
+        }
     }
 
     void applySettingsOverrides()
@@ -631,7 +714,8 @@ namespace Vita
         Settings::physics().mAsyncNumThreads.set(1);
 
         // --- Cells: preloading disabled (ICO calls missing GL functions) ---
-        Settings::cells().mVitaCellRange.set(1);
+        // With extra memory mode (224MB heap), range 2 is sustainable
+        Settings::cells().mVitaCellRange.set(2);
         Settings::cells().mPreloadEnabled.set(false);
         Settings::cells().mPreloadNumThreads.set(1);
         Settings::cells().mPreloadExteriorGrid.set(false);
@@ -647,8 +731,8 @@ namespace Vita
         // --- Navigator: completely disabled ---
         Settings::navigator().mEnable.set(false);
 
-        // --- Lua: reduced memory, profiler off ---
-        Settings::lua().mLuaNumThreads.set(1);
+        // --- Lua: no worker thread, reduced memory ---
+        Settings::lua().mLuaNumThreads.set(0);
         Settings::lua().mMemoryLimit.set(static_cast<std::uint64_t>(8 * 1024 * 1024));
         Settings::lua().mLuaProfiler.set(false);
 

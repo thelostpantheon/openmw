@@ -9,7 +9,9 @@
 #include <variant>
 
 #ifdef __vita__
+#include <atomic>
 #include <pthread.h>
+#include <psp2/kernel/threadmgr.h>
 #endif
 
 #include <BulletCollision/BroadphaseCollision/btDbvtBroadphase.h>
@@ -352,16 +354,28 @@ namespace MWPhysics
     public:
         void waitForWorkers()
         {
+#ifdef __vita__
+            // Vita: atomic poll avoids PTE condition_variable crash.
+            while (mFrameCounter.load(std::memory_order_acquire)
+                   != mWorkersFrameCounter.load(std::memory_order_acquire))
+                sceKernelDelayThread(50);
+#else
             std::unique_lock lock(mWorkersDoneMutex);
             if (mFrameCounter != mWorkersFrameCounter)
                 mWorkersDone.wait(lock);
+#endif
         }
 
         void wakeUpWorkers()
         {
+#ifdef __vita__
+            mFrameCounter.fetch_add(1, std::memory_order_release);
+            mHasJob.notify_all();
+#else
             const std::lock_guard lock(mHasJobMutex);
             ++mFrameCounter;
             mHasJob.notify_all();
+#endif
         }
 
         void stopWorkers()
@@ -373,9 +387,13 @@ namespace MWPhysics
 
         void workIsDone()
         {
+#ifdef __vita__
+            mWorkersFrameCounter.fetch_add(1, std::memory_order_release);
+#else
             const std::lock_guard lock(mWorkersDoneMutex);
             ++mWorkersFrameCounter;
             mWorkersDone.notify_all();
+#endif
         }
 
         template <class F>
@@ -385,21 +403,38 @@ namespace MWPhysics
             std::unique_lock lock(mHasJobMutex);
             while (!mShouldStop)
             {
-                mHasJob.wait(lock, [&] { return mShouldStop || mFrameCounter != lastFrame; });
-                lastFrame = mFrameCounter;
+                mHasJob.wait(lock, [&] { return mShouldStop || mFrameCounter.load(std::memory_order_acquire) != lastFrame; });
+                lastFrame = mFrameCounter.load(std::memory_order_acquire);
                 lock.unlock();
+#ifdef __vita__
+                try { f(); }
+                catch (const std::exception& e)
+                {
+                    Log(Debug::Error) << "Physics worker exception: " << e.what();
+                }
+                catch (...) { Log(Debug::Error) << "Physics worker: unknown exception"; }
+#else
                 f();
+#endif
                 lock.lock();
             }
         }
 
     private:
+#ifdef __vita__
+        std::atomic<std::size_t> mWorkersFrameCounter{0};
+#else
         std::size_t mWorkersFrameCounter = 0;
+#endif
         std::condition_variable mWorkersDone;
         std::mutex mWorkersDoneMutex;
         std::condition_variable mHasJob;
         bool mShouldStop = false;
+#ifdef __vita__
+        std::atomic<std::size_t> mFrameCounter{0};
+#else
         std::size_t mFrameCounter = 0;
+#endif
         std::mutex mHasJobMutex;
     };
 

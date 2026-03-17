@@ -9,15 +9,6 @@ SYSROOT="${VITASDK}/arm-vita-eabi"
 
 echo "=== Installing ICU for Vita ==="
 
-# Check if vdpm is available
-if command -v vdpm &> /dev/null; then
-    echo "Using vdpm to install ICU..."
-    vdpm icu4c
-    echo "=== ICU installed via vdpm ==="
-    exit 0
-fi
-
-# Manual build fallback
 WORKDIR="${1:-$(pwd)/vita-deps-build/icu}"
 ICU_VERSION="73-2"
 ICU_VERSION_DASH="73.2"
@@ -30,7 +21,7 @@ cd "${WORKDIR}"
 
 if [ ! -f icu_done ]; then
     if [ ! -f "icu4c-${ICU_VERSION}-src.tgz" ]; then
-        wget -q "https://github.com/unicode-org/icu/releases/download/release-${ICU_VERSION}/icu4c-${ICU_VERSION//-/_}-src.tgz" -O "icu4c-${ICU_VERSION}-src.tgz"
+        wget -q -L "https://github.com/unicode-org/icu/releases/download/release-${ICU_VERSION}/icu4c-${ICU_VERSION//-/_}-src.tgz" -O "icu4c-${ICU_VERSION}-src.tgz"
     fi
 
     tar xf "icu4c-${ICU_VERSION}-src.tgz"
@@ -53,12 +44,15 @@ if [ ! -f icu_done ]; then
     mkdir -p build-vita
     cd build-vita
 
+    # ICU doesn't recognize arm-vita-eabi — use Linux platform config
+    cp ../icu/source/config/mh-linux ../icu/source/config/mh-unknown
+
     CC="${VITASDK}/bin/arm-vita-eabi-gcc" \
     CXX="${VITASDK}/bin/arm-vita-eabi-g++" \
     AR="${VITASDK}/bin/arm-vita-eabi-ar" \
     RANLIB="${VITASDK}/bin/arm-vita-eabi-ranlib" \
-    CFLAGS="-O2 -fno-PIC" \
-    CXXFLAGS="-O2 -fno-PIC" \
+    CFLAGS="-Os -mcpu=cortex-a9 -mfpu=neon -fno-PIC -ffunction-sections -fdata-sections -fvisibility=hidden" \
+    CXXFLAGS="-Os -mcpu=cortex-a9 -mfpu=neon -fno-PIC -ffunction-sections -fdata-sections -fvisibility=hidden" \
     ../icu/source/configure \
         --host=arm-vita-eabi \
         --prefix="${SYSROOT}" \

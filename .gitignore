@@ -126,3 +126,4 @@ components/version/version.cpp.out
 ## Vita build artifacts / local scripts
 *.vpk
 build-vita-optimized.sh
+vita-docs/

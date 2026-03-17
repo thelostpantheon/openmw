@@ -77,13 +77,17 @@ if (ANDROID)
 endif()
 
 if (VITA)
-    add_compile_options(-ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden)
+    add_compile_options(-mthumb -ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden)
     add_link_options(-Wl,--gc-sections -Wl,--undefined=sceUserMainThreadStackSize)
     # Our components/vita/GL/gl.h shadows VitaSDK's incomplete TinyGL gl.h
     include_directories(BEFORE "${CMAKE_SOURCE_DIR}/components/vita")
     # VitaSDK newlib needs _DEFAULT_SOURCE for POSIX functions (realpath, etc.)
     # and sys/syslimits.h for PATH_MAX (GCC's limits.h shadows VitaSDK's)
     add_compile_definitions(_DEFAULT_SOURCE)
+    # PTE_CLEANUP_CXX: avoids C/C++ linkage mismatch in pthread cleanup functions.
+    add_compile_definitions(PTE_CLEANUP_CXX)
+    # Source-built LuaJIT has FFI compiled out — tell sol3 not to open it
+    add_compile_definitions(LUAJIT_DISABLE_FFI)
     # Vita has no dynamic linker — PIC generates unsupported R_ARM_BASE_PREL relocations
     set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
 endif()

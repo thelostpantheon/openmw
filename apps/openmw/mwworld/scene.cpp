@@ -107,13 +107,14 @@ static void stripForMerge(osg::Node* node)
 namespace
 {
 #ifdef __vita__
+    extern "C" unsigned int _newlib_heap_size_user;
     int getVitaCellBudgetMB()
     {
-        switch (Settings::cells().mVitaCellRange.get())
-        {
-            case 2: return 210;
-            default: return 190;
-        }
+        // Use the configured heap size (not mallinfo.arena which is consumed, not total).
+        // _newlib_heap_size_user is the actual sceKernelAllocMemBlock size.
+        int heapMB = static_cast<int>(_newlib_heap_size_user / (1024 * 1024));
+        int reserve = 16; // 12MB spikes + 4MB emergency
+        return heapMB - reserve;
     }
 #endif
 
@@ -591,6 +592,7 @@ namespace MWWorld
             else if (usedMB < budget - 10)
             {
                 s_cachesFlushed = false; // reset when memory is healthy
+                Vita::replenishEmergencyReserve();
             }
         }
 #endif
@@ -1159,9 +1161,12 @@ namespace MWWorld
         const DetourNavigator::UpdateGuard* navigatorUpdateGuard)
     {
         VITA_CRUMB("promoteCellToFull() enter");
+        // Flush before promote to reclaim demoted cell resources.
+        mRendering.flushUnrefQueueImmediate();
+        mRendering.getResourceSystem()->clearCache();
         {
             char buf[128];
-            snprintf(buf, sizeof(buf), "Promote cell %d,%d LITE->FULL, heap %dMB",
+            snprintf(buf, sizeof(buf), "Promote cell %d,%d LITE->FULL, heap %dMB (post-flush)",
                 cell.getCell()->getGridX(), cell.getCell()->getGridY(), Vita::getHeapUsedMB());
             Vita::breadcrumb(buf);
         }
@@ -1490,12 +1495,15 @@ namespace MWWorld
         }
 
 #ifdef __vita__
-        // Two-step flush on Vita:
-        // 1) flushUnrefQueueImmediate — drop refs held by the async unref queue
-        //    so old scene graph nodes release texture/mesh references
-        // 2) clearCache — evict ALL resource cache entries now that refs are gone
-        mRendering.flushUnrefQueueImmediate();
-        mRendering.getResourceSystem()->clearCache();
+        // Multi-pass flush: unref queue → cache evict, repeated for ref chains.
+        for (int pass = 0; pass < 3; ++pass)
+        {
+            mRendering.flushUnrefQueueImmediate();
+            mRendering.getResourceSystem()->clearCache();
+        }
+        // Force-expire all time-based cache entries
+        mRendering.getResourceSystem()->updateCache(mRendering.getReferenceTime() + 1000.0);
+        Vita::logMemoryStatus("Post-flush");
 #endif
 
         const DetourNavigator::CellGridBounds cellGridBounds{
@@ -1604,7 +1612,10 @@ namespace MWWorld
             if (!isCellInCollection(indexToLoad, mActiveCells))
             {
 #ifdef __vita__
+                const bool isCenter = (x == playerCellX && y == playerCellY);
                 // Memory-budgeted loading: stop if heap is nearly full.
+                // Always load the player's cell regardless of budget.
+                if (!isCenter)
                 {
                     int cellBudget = getVitaCellBudgetMB();
                     if (Vita::isMemoryPressure(cellBudget))
@@ -1616,19 +1627,19 @@ namespace MWWorld
                         continue;
                     }
                 }
-
-                const bool isCenter = (x == playerCellX && y == playerCellY);
 #endif
                 CellStore& cell = mWorld.getWorldModel().getExterior(indexToLoad);
 #ifdef __vita__
                 if (isCenter)
                 {
                     loadCell(cell, loadingListener, changeEvent, pos, navigatorUpdateGuard.get());
-                    mRendering.getResourceSystem()->updateCache(mRendering.getReferenceTime());
+                    // Flush after center load to free cache before LITE cells.
+                    mRendering.flushUnrefQueueImmediate();
+                    mRendering.getResourceSystem()->clearCache();
                     {
                         struct mallinfo mi = mallinfo();
                         char buf[128];
-                        snprintf(buf, sizeof(buf), "Loaded cell (%d,%d) FULL: heap %dKB used",
+                        snprintf(buf, sizeof(buf), "Loaded cell (%d,%d) FULL+flush: heap %dKB used",
                             x, y, mi.uordblks / 1024);
                         Vita::breadcrumb(buf);
                     }
@@ -1636,6 +1647,9 @@ namespace MWWorld
                 else
                 {
                     loadCellLite(cell, loadingListener, pos, navigatorUpdateGuard.get());
+                    // Flush after each LITE cell to prevent cache accumulation.
+                    mRendering.flushUnrefQueueImmediate();
+                    mRendering.getResourceSystem()->updateCache(mRendering.getReferenceTime());
                     {
                         char buf[128];
                         snprintf(buf, sizeof(buf), "Loaded cell (%d,%d) LITE sync: heap %dMB",

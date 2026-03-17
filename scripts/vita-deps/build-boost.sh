@@ -8,15 +8,6 @@ SYSROOT="${VITASDK}/arm-vita-eabi"
 
 echo "=== Installing Boost for Vita ==="
 
-# Check if vdpm is available
-if command -v vdpm &> /dev/null; then
-    echo "Using vdpm to install Boost..."
-    vdpm boost
-    echo "=== Boost installed via vdpm ==="
-    exit 0
-fi
-
-# Manual build fallback
 WORKDIR="${1:-$(pwd)/vita-deps-build/boost}"
 BOOST_VERSION="1.78.0"
 BOOST_VERSION_UNDERSCORE="1_78_0"
@@ -30,16 +21,21 @@ cd "${WORKDIR}"
 if [ ! -f boost_done ]; then
     # Download
     if [ ! -f "boost_${BOOST_VERSION_UNDERSCORE}.tar.bz2" ]; then
-        wget -q "https://boostorg.jfrog.io/artifactory/main/release/${BOOST_VERSION}/source/boost_${BOOST_VERSION_UNDERSCORE}.tar.bz2"
+        wget -q "https://archives.boost.io/release/${BOOST_VERSION}/source/boost_${BOOST_VERSION_UNDERSCORE}.tar.bz2"
     fi
 
     tar xf "boost_${BOOST_VERSION_UNDERSCORE}.tar.bz2"
     cd "boost_${BOOST_VERSION_UNDERSCORE}"
 
     # Create user-config.jam for Vita cross-compilation
-    cat > user-config.jam << 'EOF'
-using gcc : vita : arm-vita-eabi-g++ ;
-EOF
+    cat > user-config.jam << JAMEOF
+using gcc : vita : ${VITASDK}/bin/arm-vita-eabi-g++ :
+    <compileflags>"-Os -mcpu=cortex-a9 -mfpu=neon -ffunction-sections -fdata-sections -fvisibility=hidden -DBOOST_IOSTREAMS_NO_MAPPED_FILE"
+;
+JAMEOF
+
+    # Vita has no mmap — stub out mapped_file so it compiles as empty
+    echo "// Vita: no mmap support" > libs/iostreams/src/mapped_file.cpp
 
     # Bootstrap b2
     ./bootstrap.sh
@@ -55,8 +51,6 @@ EOF
         variant=release \
         --with-iostreams \
         --with-program_options \
-        --with-system \
-        --with-filesystem \
         --prefix="${SYSROOT}" \
         install
 

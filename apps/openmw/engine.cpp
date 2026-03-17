@@ -296,7 +296,17 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
 
             if (mStateManager->getState() != MWBase::StateManager::State_NoGame)
             {
+#ifdef __vita__
+                try {
+                    mWorld->updatePhysics(frametime, paused, frameStart, frameNumber, *stats);
+                } catch (const std::exception& e) {
+                    Vita::breadcrumb(("[PhysCrash] std::exception: " + std::string(e.what())).c_str());
+                } catch (...) {
+                    Vita::breadcrumb("[PhysCrash] non-std exception caught");
+                }
+#else
                 mWorld->updatePhysics(frametime, paused, frameStart, frameNumber, *stats);
+#endif
             }
         }
 

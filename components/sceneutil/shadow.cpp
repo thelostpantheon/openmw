@@ -111,36 +111,40 @@ namespace SceneUtil
     ShadowManager::ShadowManager(osg::ref_ptr<osg::Group> sceneRoot, osg::ref_ptr<osg::Group> rootNode,
         unsigned int outdoorShadowCastingMask, unsigned int indoorShadowCastingMask, unsigned int worldMask,
         const Settings::ShadowsCategory& settings, Shader::ShaderManager& shaderManager)
+#ifdef __vita__
+        : mOutdoorShadowCastingMask(outdoorShadowCastingMask)
+#else
         : mShadowedScene(new osgShadow::ShadowedScene)
         , mShadowTechnique(new MWShadowTechnique)
         , mOutdoorShadowCastingMask(outdoorShadowCastingMask)
+#endif
         , mIndoorShadowCastingMask(indoorShadowCastingMask)
     {
         if (sInstance)
             throw std::logic_error("A ShadowManager already exists");
 
+#ifdef __vita__
+        // Vita: bypass osgShadow entirely (ABI mismatch + saves memory).
+        rootNode->addChild(sceneRoot);
+        mEnableShadows = false;
+#else
         mShadowedScene->setShadowTechnique(mShadowTechnique);
 
         if (Stereo::getStereo())
             Stereo::Manager::instance().setShadowTechnique(mShadowTechnique);
 
-#ifdef __vita__
-        rootNode->addChild(sceneRoot); // bypass ShadowedScene wrapper — shadows always off on Vita
-#else
         mShadowedScene->addChild(sceneRoot);
         rootNode->addChild(mShadowedScene);
-#endif
         mShadowedScene->setNodeMask(sceneRoot->getNodeMask());
 
         mShadowSettings = mShadowedScene->getShadowSettings();
         setupShadowSettings(settings, shaderManager);
 
-#ifndef __vita__
         mShadowTechnique->setupCastingShader(shaderManager);
-#endif
         mShadowTechnique->setWorldMask(worldMask);
 
         enableOutdoorMode();
+#endif
 
         sInstance = this;
     }
@@ -204,6 +208,9 @@ namespace SceneUtil
 
     void ShadowManager::enableIndoorMode(const Settings::ShadowsCategory& settings)
     {
+#ifdef __vita__
+        return;
+#endif
         if (settings.mEnableIndoorShadows)
             mShadowSettings->setCastsShadowTraversalMask(mIndoorShadowCastingMask);
         else
@@ -212,6 +219,9 @@ namespace SceneUtil
 
     void ShadowManager::enableOutdoorMode()
     {
+#ifdef __vita__
+        return;
+#endif
         if (mEnableShadows)
             mShadowTechnique->enableShadows();
         mShadowSettings->setCastsShadowTraversalMask(mOutdoorShadowCastingMask);

@@ -47,7 +47,7 @@ RUN chmod +x /tmp/vita-deps/*.sh \
     && cd /tmp && bash vita-deps/build-all.sh /tmp/vita-deps-build \
     && rm -rf /tmp/vita-deps /tmp/vita-deps-build
 
-# Pre-download & extract FetchContent sources with wget (CMake's curl has HTTP/2 bugs with GitHub)
+# Pre-download FetchContent sources (CMake's curl has HTTP/2 bugs with GitHub)
 RUN mkdir -p /tmp/fc && cd /tmp/fc \
     && wget -q -O bullet.tar.gz  https://github.com/bulletphysics/bullet3/archive/refs/tags/3.17.tar.gz \
     && wget -q -O mygui.zip      https://github.com/MyGUI/mygui/archive/refs/tags/MyGUI3.4.3.zip \
@@ -55,13 +55,24 @@ RUN mkdir -p /tmp/fc && cd /tmp/fc \
     && wget -q -O recast.zip     https://github.com/OpenMW/recastnavigation/archive/03259f3287ff8330f0d66fcd98d022edddffaa97.zip \
     && wget -q -O sqlite3.zip    https://www.sqlite.org/2023/sqlite-amalgamation-3410100.zip \
     && wget -q -O yaml-cpp.zip   https://github.com/jbeder/yaml-cpp/archive/c2680200486572baf8221ba052ef50b58ecd816e.zip \
+    && wget -q -O icu.zip        https://github.com/unicode-org/icu/archive/refs/tags/release-70-1.zip \
     && tar xzf bullet.tar.gz  && mv bullet3-3.17 bullet-src \
     && unzip -q mygui.zip      && mv mygui-MyGUI3.4.3 mygui-src \
     && unzip -q osg.zip        && mv osg-01cc2b585c8456a4ff843066b7e1a8715558289f osg-src \
     && unzip -q recast.zip     && mv recastnavigation-03259f3287ff8330f0d66fcd98d022edddffaa97 recast-src \
     && unzip -q sqlite3.zip    && mv sqlite-amalgamation-3410100 sqlite3-src \
     && unzip -q yaml-cpp.zip   && mv yaml-cpp-c2680200486572baf8221ba052ef50b58ecd816e yaml-cpp-src \
+    && unzip -q icu.zip        && mv icu-release-70-1 icu-src \
     && rm -f *.tar.gz *.zip
+
+# Build ICU host tools (needed for data filtering during cross-compile)
+RUN cd /tmp/fc/icu-src/icu4c/source \
+    && cp config/mh-linux config/mh-unknown \
+    && mkdir -p /tmp/icu-host-build && cd /tmp/icu-host-build \
+    && /tmp/fc/icu-src/icu4c/source/configure \
+       --enable-static --disable-shared \
+       --disable-extras --disable-tests --disable-samples --disable-icuio \
+    && make -j$(nproc)
 
 # Build OpenMW
 WORKDIR /src
@@ -69,8 +80,10 @@ COPY . .
 RUN mkdir -p build-vita && cd build-vita \
     && cmake \
        -DCMAKE_TOOLCHAIN_FILE=../cmake/VitaToolchain.cmake \
-       -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+       -DCMAKE_BUILD_TYPE=Release \
+       -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
        -DVITAGL_DIR=${VITAGL_DIR} \
+       -DICU_HOST_BUILD_DIR=/tmp/icu-host-build \
        -DBUILD_OPENMW=ON \
        -DBUILD_LAUNCHER=OFF \
        -DBUILD_WIZARD=OFF \
@@ -94,9 +107,11 @@ RUN mkdir -p build-vita && cd build-vita \
        -DFETCHCONTENT_SOURCE_DIR_RECASTNAVIGATION=/tmp/fc/recast-src \
        -DFETCHCONTENT_SOURCE_DIR_SQLITE3=/tmp/fc/sqlite3-src \
        -DFETCHCONTENT_SOURCE_DIR_YAML-CPP=/tmp/fc/yaml-cpp-src \
+       -DFETCHCONTENT_SOURCE_DIR_ICU=/tmp/fc/icu-src \
        -D_OPENTHREADS_ATOMIC_USE_GCC_BUILTINS_EXITCODE=0 \
        .. \
+    && make -C _deps/osg-build -j$(nproc) \
     && make -j$(nproc) openmw.vpk-vpk
 
-# VPK is at /src/build-vita/apps/openmw/openmw.vpk
-# Extract with: docker cp <container>:/src/build-vita/apps/openmw/openmw.vpk .
+# VPK at /src/build-vita/apps/openmw/openmw.vpk
+# Extract: docker cp <container>:/src/build-vita/apps/openmw/openmw.vpk .

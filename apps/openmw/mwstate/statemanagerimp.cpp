@@ -8,6 +8,8 @@
 
 #ifdef __vita__
 #include "../vita/VitaInit.h"
+#include "../mwrender/renderingmanager.hpp"
+#include <components/resource/resourcesystem.hpp>
 #define VITA_CRUMB(msg) Vita::breadcrumb(msg)
 #else
 #define VITA_CRUMB(msg)
@@ -69,6 +71,13 @@ void MWState::StateManager::cleanup(bool force)
         MWBase::Environment::get().getWorld()->clear();
         MWBase::Environment::get().getInputManager()->clear();
         MWBase::Environment::get().getMechanicsManager()->clear();
+
+#ifdef __vita__
+        // Vita: free cached resources immediately (save loader needs the RAM).
+        MWBase::Environment::get().getWorld()->getRenderingManager()->flushUnrefQueueImmediate();
+        MWBase::Environment::get().getResourceSystem()->clearCache();
+        Vita::logMemoryStatus("Post-cleanup");
+#endif
 
         mCharacterManager.setCurrentCharacter(nullptr);
         mTimePlayed = 0;
@@ -465,6 +474,13 @@ void MWState::StateManager::loadGame(const Character* character, const std::file
     try
     {
         cleanup();
+
+#ifdef __vita__
+        // Flush caches before save loading (cleanup may skip on first load).
+        MWBase::Environment::get().getWorld()->getRenderingManager()->flushUnrefQueueImmediate();
+        MWBase::Environment::get().getResourceSystem()->clearCache();
+        Vita::logMemoryStatus("Pre-save-load");
+#endif
 
         Log(Debug::Info) << "Reading save file " << filepath.filename();
 

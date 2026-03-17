@@ -42,6 +42,7 @@ if [ ! -d "${VITASDK}" ]; then
 fi
 
 export VITASDK
+export PATH="${VITASDK}/bin:${PATH}"
 
 mkdir -p "${WORKDIR}"
 
@@ -79,11 +80,8 @@ if [ -z "${FAILED}" ]; then
     echo "All dependencies built successfully!"
     echo ""
     echo "Next steps:"
-    echo "  mkdir build-vita && cd build-vita"
-    echo "  cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/VitaToolchain.cmake \\"
-    echo "        -DCMAKE_BUILD_TYPE=RelWithDebInfo \\"
-    echo "        .."
-    echo "  make -j\$(nproc)"
+    echo "  cd /path/to/openmw"
+    echo "  scripts/vita/build.sh"
 else
     echo "FAILED:${FAILED}"
     echo "Fix the errors above and re-run this script."

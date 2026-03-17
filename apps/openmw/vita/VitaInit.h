@@ -37,6 +37,9 @@ namespace Vita
 
     // Returns true if heap usage exceeds the given MB threshold
     bool isMemoryPressure(int thresholdMB);
+
+    // Replenish emergency reserve after OOM recovery.
+    void replenishEmergencyReserve();
 }
 
 // Convenience macro that compiles to nothing on non-Vita

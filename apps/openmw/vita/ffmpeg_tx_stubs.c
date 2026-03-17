@@ -22,4 +22,17 @@ void av_tx_uninit(AVTXContext** ctx)
     (void)ctx;
 }
 
+/*
+ * Stub ff_tx_init_subtx to break the dependency chain from tx.o into
+ * tx_float.o / tx_double.o / tx_int32.o which contain the 16MB FFT tables.
+ */
+typedef int FFTXCodeletOptions;
+
+int ff_tx_init_subtx(AVTXContext* s, int type, uint64_t flags,
+                     FFTXCodeletOptions* opts, int len, int inv, const void* scale)
+{
+    (void)s; (void)type; (void)flags; (void)opts; (void)len; (void)inv; (void)scale;
+    return -1;
+}
+
 #endif /* __vita__ */
