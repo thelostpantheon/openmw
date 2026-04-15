@@ -26,6 +26,15 @@ set(CMAKE_C_FLAGS_RELEASE "-Os -DNDEBUG -ftree-vectorize -funroll-loops -fomit-f
 # All-static Vita builds have circular deps between libs (vitaGL ↔ SceGxm,
 # freetype ↔ bz2, avformat ↔ avcodec, etc.). Wrap link with --start/end-group
 # so the linker iterates until all symbols resolve, regardless of order.
+# -Wl,--long-plt enables veneer generation for long calls in Thumb mode (fixes
+# null pointer crashes from out-of-range branch instructions).
+# NOTE: -Wl,--long-plt must be in LINK_FLAGS (not just CXX_LINK_EXECUTABLE) so it
+# applies to all intermediate library builds (OSG, Bullet, MyGUI) in addition to
+# the final openmw executable.
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--long-plt" CACHE STRING "" FORCE)
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--long-plt" CACHE STRING "" FORCE)
+set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,--long-plt" CACHE STRING "" FORCE)
+
 set(CMAKE_CXX_LINK_EXECUTABLE
     "<CMAKE_CXX_COMPILER> <FLAGS> <CMAKE_CXX_LINK_FLAGS> <LINK_FLAGS> -Wl,--start-group <OBJECTS> <LINK_LIBRARIES> -Wl,--end-group -o <TARGET>"
     CACHE STRING "" FORCE)

@@ -343,6 +343,18 @@ if (VITA AND BUILD_OPENMW)
     # Extra memory mode: +109MB RAM (Vita disables background services)
     set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
 
+    # Fix ARM relocations and vtable relocations BEFORE conversion
+    add_custom_command(TARGET openmw POST_BUILD
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-relocations.py
+            ${CMAKE_CURRENT_BINARY_DIR}/openmw
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-vtable-relocs.py
+            ${CMAKE_CURRENT_BINARY_DIR}/openmw
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-veneers.py
+            ${CMAKE_CURRENT_BINARY_DIR}/openmw
+        COMMENT "Fixing ARM relocations, vtable relocations, and veneer literal pools"
+        VERBATIM
+    )
+
     # Convert ELF to Vita SELF (eboot.bin)
     vita_create_self(eboot.bin openmw
         UNSAFE
@@ -376,8 +388,9 @@ if (VITA AND BUILD_OPENMW)
 
     # Add resources directory to VPK after packaging
     add_custom_command(TARGET openmw.vpk-vpk POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E chdir ${CMAKE_BINARY_DIR}
-            zip -r -0 ${CMAKE_CURRENT_BINARY_DIR}/openmw.vpk resources/
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/add-resources-to-vpk.py
+            ${CMAKE_CURRENT_BINARY_DIR}/openmw.vpk
+            ${CMAKE_BINARY_DIR}/resources
         COMMENT "Adding resources to VPK"
     )
 endif()

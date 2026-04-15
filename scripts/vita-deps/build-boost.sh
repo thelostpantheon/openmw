@@ -3,6 +3,9 @@
 # Uses vitasdk/packages if available, otherwise builds from source
 set -e
 
+# Error cleanup handler
+trap 'rm -f "${WORKDIR}/boost_done"' ERR
+
 VITASDK="${VITASDK:-/usr/local/vitasdk}"
 SYSROOT="${VITASDK}/arm-vita-eabi"
 
@@ -41,6 +44,7 @@ JAMEOF
     ./bootstrap.sh
 
     # Build only the libraries OpenMW needs
+    # Limit to 8 jobs to avoid OOM during linking
     ./b2 \
         --user-config=user-config.jam \
         toolset=gcc-vita \
@@ -52,7 +56,14 @@ JAMEOF
         --with-iostreams \
         --with-program_options \
         --prefix="${SYSROOT}" \
+        -j$(nproc | awk '{print ($1 > 8) ? 8 : $1}') \
         install
+
+    # Validate installation
+    if [ ! -f "${SYSROOT}/lib/libboost_iostreams.a" ] || [ ! -f "${SYSROOT}/lib/libboost_program_options.a" ]; then
+        echo "ERROR: Boost installation failed - libraries not found in ${SYSROOT}/lib"
+        exit 1
+    fi
 
     cd ..
     touch boost_done

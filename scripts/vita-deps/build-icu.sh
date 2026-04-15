@@ -4,6 +4,9 @@
 # ICU requires a two-stage build: host tools first, then cross-compile
 set -e
 
+# Error cleanup handler
+trap 'rm -f "${WORKDIR}/icu_done"' ERR
+
 VITASDK="${VITASDK:-/usr/local/vitasdk}"
 SYSROOT="${VITASDK}/arm-vita-eabi"
 
@@ -36,7 +39,7 @@ if [ ! -f icu_done ]; then
         --disable-extras \
         --disable-tests \
         --disable-samples
-    make -j$(nproc)
+    make -j$(nproc | awk '{print ($1 > 8) ? 8 : $1}')
     cd ..
 
     # Stage 2: Cross-compile for Vita
@@ -70,8 +73,14 @@ if [ ! -f icu_done ]; then
         --disable-dyload \
         --with-data-packaging=archive
 
-    make -j$(nproc)
+    make -j$(nproc | awk '{print ($1 > 8) ? 8 : $1}')
     make install
+
+    # Validate installation
+    if [ ! -f "${SYSROOT}/lib/libicuuc.a" ] || [ ! -f "${SYSROOT}/lib/libicui18n.a" ] || [ ! -f "${SYSROOT}/lib/libicudata.a" ]; then
+        echo "ERROR: ICU installation failed - libraries not found in ${SYSROOT}/lib"
+        exit 1
+    fi
 
     cd ..
     touch icu_done

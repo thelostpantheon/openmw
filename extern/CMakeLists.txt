@@ -125,12 +125,18 @@ if(NOT OPENMW_USE_SYSTEM_OSG)
     set(OPENGL_PROFILE "GL2" CACHE STRING "")
 
     if(VITA)
-        set(OSG_GL_LIBRARY_STATIC ON CACHE BOOL "" FORCE)
+        # OSG_GL_LIBRARY_STATIC causes OSG to build GLStaticLibrary.cpp, which creates
+        # a static function pointer table. Many functions don't exist in vitaGL
+        # (glBlendColor, glDetachShader, glIsBuffer, etc.), causing compilation errors.
+        # vitaGL already links GL functions directly, so we don't need the static table.
+        set(OSG_GL_LIBRARY_STATIC OFF CACHE BOOL "" FORCE)
         # vitaGL display lists are non-functional without HAVE_DISPLAY_LISTS build flag.
         # With only 1 display list slot, glGenLists returns the same ID for all drawables,
         # and glCallList replays an empty list (nothing recorded without HAVE_DLISTS).
         # This causes all NIF geometry to disappear after its first frame.
         set(OSG_GL_DISPLAYLISTS_AVAILABLE OFF CACHE BOOL "" FORCE)
+        # Disable windowing system (vitaGL handles this, no X11/Windows needed)
+        set(OSG_WINDOWING_SYSTEM "None" CACHE STRING "" FORCE)
     endif()
 
     if(OSG_STATIC)
@@ -174,6 +180,13 @@ if(NOT OPENMW_USE_SYSTEM_OSG)
     # OpenThreads needs UNIX=true to select the pthreads backend.
     if(VITA)
         set(UNIX TRUE)
+        # Force veneer generation for long-range calls in OSG libraries
+        # Note: The linker flag must be added at link time, not compile time.
+        # However, CMake doesn't always propagate linker flags from toolchain files
+        # to FetchContent subprojects, so we explicitly set them here.
+        set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,--long-plt" CACHE STRING "" FORCE)
+        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,--long-plt" CACHE STRING "" FORCE)
+        set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -Wl,--long-plt" CACHE STRING "" FORCE)
     endif()
     FetchContent_MakeAvailable(osg)
     if(VITA)
@@ -340,7 +353,7 @@ if (NOT OPENMW_USE_SYSTEM_ICU)
         CONFIGURE_COMMAND ${CMAKE_COMMAND} -E env ${ICU_ENV}
             <SOURCE_DIR>/icu4c/source/configure --enable-static --disable-shared
             --disable-tests --disable-samples --disable-icuio --disable-extras ${ICU_ADDITIONAL_OPTS}
-        BUILD_COMMAND make
+        BUILD_COMMAND make -j1
         INSTALL_COMMAND ""
     )
     ExternalProject_Get_Property(icu SOURCE_DIR BINARY_DIR)

@@ -3,6 +3,9 @@
 # Required by vitaGL for GPU access
 set -e
 
+# Error cleanup handler
+trap 'rm -f "${WORKDIR}/pvr_stubs_done" "${WORKDIR}/pvr_headers_done"' ERR
+
 VITASDK="${VITASDK:-/usr/local/vitasdk}"
 SYSROOT="${VITASDK}/arm-vita-eabi"
 WORKDIR="${1:-$(pwd)/vita-deps-build/pvr-psp2}"
@@ -30,6 +33,12 @@ if [ ! -f pvr_stubs_done ]; then
     unzip -o pvr_stubs.zip -d "${SYSROOT}/lib/"
     touch pvr_stubs_done
     echo "PVR_PSP2 stubs installed"
+fi
+
+# Validate installation
+if [ ! -d "${SYSROOT}/include/gpu_es4" ] || [ ! -d "${SYSROOT}/lib/libGLESv2_stub_vitasdk.a" ]; then
+    echo "ERROR: PVR_PSP2 installation failed - headers or stubs not found in ${SYSROOT}"
+    exit 1
 fi
 
 echo "=== PVR_PSP2 installation complete ==="

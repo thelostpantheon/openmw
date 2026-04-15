@@ -125,5 +125,15 @@ components/version/version.cpp.out
 
 ## Vita build artifacts / local scripts
 *.vpk
+*.elf
+*.velf
+*.bin
+eboot*.bin
 build-vita-optimized.sh
 vita-docs/
+/crash/
+*.psp2dmp
+boot.log
+debug.log
+openmw*.elf
+openmw*.velf

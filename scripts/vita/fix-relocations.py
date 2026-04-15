@@ -14,7 +14,7 @@ import sys
 import os
 
 # ARM relocation types to patch → R_ARM_NONE (0)
-UNSUPPORTED_TYPES = {25, 26}  # R_ARM_BASE_PREL, R_ARM_GOT_BREL
+UNSUPPORTED_TYPES = {25, 26, 38, 41, 64}  # R_ARM_BASE_PREL, R_ARM_GOT_BREL, R_ARM_TARGET1, R_ARM_TARGET2, R_ARM_V4BX
 
 def patch_elf(path):
     with open(path, 'r+b') as f:

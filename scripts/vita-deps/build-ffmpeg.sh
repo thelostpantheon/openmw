@@ -4,6 +4,9 @@
 # Minimal config: only decoders needed for Morrowind audio/video
 set -e
 
+# Error cleanup handler
+trap 'rm -f "${WORKDIR}/ffmpeg_done"' ERR
+
 VITASDK="${VITASDK:-/usr/local/vitasdk}"
 SYSROOT="${VITASDK}/arm-vita-eabi"
 
@@ -66,8 +69,14 @@ if [ ! -f ffmpeg_done ]; then
         --enable-protocol=file \
         --extra-cflags="-Os -mcpu=cortex-a9 -mfpu=neon -ftree-vectorize -fomit-frame-pointer -ffunction-sections -fdata-sections -fvisibility=hidden"
 
-    make -j$(nproc)
+    make -j$(nproc | awk '{print ($1 > 8) ? 8 : $1}')
     make install
+
+    # Validate installation
+    if [ ! -f "${SYSROOT}/lib/libavcodec.a" ] || [ ! -f "${SYSROOT}/lib/libavformat.a" ] || [ ! -f "${SYSROOT}/lib/libavutil.a" ]; then
+        echo "ERROR: FFmpeg installation failed - libraries not found in ${SYSROOT}/lib"
+        exit 1
+    fi
 
     cd ..
     touch ffmpeg_done

@@ -1,10 +1,10 @@
-FROM ubuntu:22.04
+FROM --platform=linux/amd64 ubuntu:22.04
 
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Host build tools
 RUN apt-get update && apt-get install -y \
-    build-essential git wget curl unzip sudo \
+    build-essential gcc-multilib g++-multilib git wget curl unzip zip sudo \
     python3 python3-pip pkg-config autoconf automake libtool \
     && pip3 install cmake==3.28.1 \
     && rm -rf /var/lib/apt/lists/*
@@ -65,6 +65,10 @@ RUN mkdir -p /tmp/fc && cd /tmp/fc \
     && unzip -q icu.zip        && mv icu-release-70-1 icu-src \
     && rm -f *.tar.gz *.zip
 
+# Apply Vita compatibility patches to OSG
+COPY patches/osg /tmp/patches/osg
+RUN cd /tmp/fc/osg-src && patch -p1 < /tmp/patches/osg/vita-compat.patch
+
 # Build ICU host tools (needed for data filtering during cross-compile)
 RUN cd /tmp/fc/icu-src/icu4c/source \
     && cp config/mh-linux config/mh-unknown \
@@ -84,6 +88,7 @@ RUN mkdir -p build-vita && cd build-vita \
        -DCMAKE_POLICY_VERSION_MINIMUM=3.5 \
        -DVITAGL_DIR=${VITAGL_DIR} \
        -DICU_HOST_BUILD_DIR=/tmp/icu-host-build \
+       -DOPENMW_RESOURCES_ROOT=/src/build-vita \
        -DBUILD_OPENMW=ON \
        -DBUILD_LAUNCHER=OFF \
        -DBUILD_WIZARD=OFF \
@@ -111,7 +116,7 @@ RUN mkdir -p build-vita && cd build-vita \
        -D_OPENTHREADS_ATOMIC_USE_GCC_BUILTINS_EXITCODE=0 \
        .. \
     && make -C _deps/osg-build -j$(nproc) \
-    && make -j$(nproc) openmw.vpk-vpk
+    && make -j4 openmw.vpk-vpk
 
 # VPK at /src/build-vita/apps/openmw/openmw.vpk
 # Extract: docker cp <container>:/src/build-vita/apps/openmw/openmw.vpk .
