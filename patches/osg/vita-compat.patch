@@ -1,0 +1,86 @@
+Vita compatibility patch for OpenSceneGraph (OSG).
+
+VitaSDK's newlib libc does not provide:
+  - struct stat64 / stat64() — OSG's osgDB relies on these for file metadata.
+    We alias stat64 -> stat (Vita's off_t is already 32-bit; stat is sufficient).
+  - PATH_MAX (POSIX makes it optional). OSG assumes it's always defined by
+    <limits.h>; we fall back to 4096 when it isn't.
+  - Working dlsym(). OSG's getGLExtensionFuncPtr falls through to a generic
+    Unix branch that calls dlsym(0, name), which on newlib always returns
+    NULL. Every extension function pointer ends up null and the first GL
+    call through one (e.g. glDisableVertexAttribArray) crashes with PC=0.
+    We route through vitaGL's vglGetProcAddress, which carries a 348-entry
+    static proctable covering every GL function vitaGL exposes.
+
+C++17 operator resolution changes (GCC 10+) combined with OSG_USE_FLOAT_MATRIX
+also create an ambiguous operator!= between osg::RefMatrixf and osg::Matrixd
+in osgShadow; cast to disambiguate.
+
+--- a/src/osgDB/FileUtils.cpp
++++ b/src/osgDB/FileUtils.cpp
+@@ -98,6 +98,10 @@
+ #if defined(__ANDROID__)
+     #define stat64 stat
+ #endif
++
++#if defined(__vita__)
++    #define stat64 stat
++#endif
+
+     // set up _S_ISDIR()
+ #if !defined(S_ISDIR)
+--- a/src/osgDB/FileNameUtils.cpp
++++ b/src/osgDB/FileNameUtils.cpp
+@@ -29,8 +29,8 @@
+     using std::tolower;
+ #endif
+
+-#if defined(__GNU__) && !defined(PATH_MAX)
+-#define PATH_MAX 4096
++#ifndef PATH_MAX
++#define PATH_MAX 4096
+ #endif
+
+ using namespace std;
+--- a/src/osg/GLExtensions.cpp
++++ b/src/osg/GLExtensions.cpp
+@@ -318,6 +318,13 @@
+
+ OSG_INIT_SINGLETON_PROXY(GLExtensionDisableStringInitializationProxy, osg::getGLExtensionDisableString())
+
++#if defined(__vita__)
++// vitaGL's proctable lookup; declared here (namespace scope) to avoid pulling
++// vitaGL.h into OSG's translation unit (its macros collide with OSG's types).
++extern "C" void *vglGetProcAddress(const char *name);
++#endif
++
++
+ #ifdef OSG_GL_LIBRARY_STATIC
+
+     #include "GLStaticLibrary.h"
+@@ -330,7 +337,11 @@
+     void* osg::getGLExtensionFuncPtr(const char *funcName)
+     {
+         // OSG_NOTICE<<"osg::getGLExtensionFuncPtr("<<funcName<<")"<<std::endl;
+-    #if defined(__ANDROID__)
++    #if defined(__vita__)
++        // newlib's dlsym is non-functional on Vita; the generic Unix fallback
++        // below returns NULL. Route through vitaGL's static proctable.
++        return vglGetProcAddress(funcName);
++    #elif defined(__ANDROID__)
+         #if defined(OSG_GLES1_AVAILABLE)
+             static void *handle = dlopen("libGLESv1_CM.so", RTLD_NOW);
+         #elif defined(OSG_GLES2_AVAILABLE)
+--- a/src/osgShadow/MinimalCullBoundsShadowMap.cpp
++++ b/src/osgShadow/MinimalCullBoundsShadowMap.cpp
+@@ -75,7 +75,9 @@
+             *_cv->getModelViewMatrix() * *_cv->getProjectionMatrix() );
+
+     osg::BoundingBox bb;
+-    if( *_cv->getProjectionMatrix() != _clampedProjection ) {
++    // Vita: OSG_USE_FLOAT_MATRIX makes RefMatrix = Matrixf, but
++    // _clampedProjection is Matrixd. Cast to disambiguate the comparison.
++    if( osg::Matrixd(*_cv->getProjectionMatrix()) != _clampedProjection ) {
+
+         osg::Polytope polytope;
+ #if 1

@@ -343,15 +343,16 @@ if (VITA AND BUILD_OPENMW)
     # Extra memory mode: +109MB RAM (Vita disables background services)
     set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
 
-    # Fix ARM relocations and vtable relocations BEFORE conversion
+    # Fix ARM relocations and veneer literal pools BEFORE conversion.
+    # TODO(vita): fix-vtable-relocs.py was invoked between fix-relocations and
+    # fix-veneers but the script is not in this tree. Runtime vtable dispatch
+    # crashes may reappear until it is reintroduced.
     add_custom_command(TARGET openmw POST_BUILD
         COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-relocations.py
             ${CMAKE_CURRENT_BINARY_DIR}/openmw
-        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-vtable-relocs.py
-            ${CMAKE_CURRENT_BINARY_DIR}/openmw
         COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-veneers.py
             ${CMAKE_CURRENT_BINARY_DIR}/openmw
-        COMMENT "Fixing ARM relocations, vtable relocations, and veneer literal pools"
+        COMMENT "Fixing ARM relocations and veneer literal pools"
         VERBATIM
     )
 
@@ -367,7 +368,7 @@ if (VITA AND BUILD_OPENMW)
         COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-bss.py
             ${CMAKE_CURRENT_BINARY_DIR}/openmw.velf
         COMMENT "Expanding BSS in VELF (zeroing uninitialized data)"
-    )
+    )z
 
     # LiveArea assets
     set(VITA_DATA_DIR ${CMAKE_SOURCE_DIR}/data/vita)
@@ -386,11 +387,13 @@ if (VITA AND BUILD_OPENMW)
         FILE ${VITA_DATA_DIR}/sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
     )
 
-    # Add resources directory to VPK after packaging
+    # Inject ${CMAKE_BINARY_DIR}/resources (shaders, fonts, lua_api, vfs, ...)
+    # into the VPK. vita_create_vpk only packs explicit FILE entries; OSG/OpenMW
+    # needs the full resources tree or launch crashes with missing shader files.
     add_custom_command(TARGET openmw.vpk-vpk POST_BUILD
         COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/add-resources-to-vpk.py
             ${CMAKE_CURRENT_BINARY_DIR}/openmw.vpk
             ${CMAKE_BINARY_DIR}/resources
-        COMMENT "Adding resources to VPK"
+        COMMENT "Adding resources/ directory to VPK"
     )
 endif()

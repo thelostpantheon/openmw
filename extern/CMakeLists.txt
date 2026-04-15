@@ -171,10 +171,18 @@ if(NOT OPENMW_USE_SYSTEM_OSG)
 
     # OSGoS branch 3.6
     include(FetchContent)
+    # PATCH_COMMAND applies Vita-only fixes to osgDB (stat64, PATH_MAX).
+    # `patch -N` skips already-applied hunks so re-runs are idempotent.
+    if(VITA)
+        set(_osg_patch_cmd PATCH_COMMAND patch -p1 -N -r- --input=${CMAKE_SOURCE_DIR}/patches/osg/vita-compat.patch || true)
+    else()
+        set(_osg_patch_cmd "")
+    endif()
     FetchContent_Declare(osg
         URL https://github.com/OpenMW/osg/archive/01cc2b585c8456a4ff843066b7e1a8715558289f.zip
         URL_HASH SHA512=9b0a94c1c1d99c767f1857629d43c7a53bfcb74ef760993a121567831e168a1ebbfc10b0c67d7f2241c7b6c6dab2d0e6b876d9f17aca0fabe1a8c86b2279f956
         SOURCE_DIR fetched/osg
+        ${_osg_patch_cmd}
     )
     # Vita toolchain sets CMAKE_SYSTEM_NAME=Generic, which makes UNIX false.
     # OpenThreads needs UNIX=true to select the pthreads backend.
