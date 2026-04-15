@@ -368,7 +368,7 @@ if (VITA AND BUILD_OPENMW)
         COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-bss.py
             ${CMAKE_CURRENT_BINARY_DIR}/openmw.velf
         COMMENT "Expanding BSS in VELF (zeroing uninitialized data)"
-    )z
+    )
 
     # LiveArea assets
     set(VITA_DATA_DIR ${CMAKE_SOURCE_DIR}/data/vita)
