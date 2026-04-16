@@ -189,11 +189,9 @@ git clone https://github.com/vitasdk/vdpm.git && cd vdpm
 git clone https://github.com/Rinnegatamante/vitaGL.git
 cd vitaGL
 make -j$(nproc) \
-    HAVE_GLSL_SUPPORT=1 \
-    HAVE_UNFLIPPED_FBOS=1 \
+    DEPTH_STENCIL_HACK=1 \
     DRAW_SPEEDHACK=1 MATH_SPEEDHACK=1 \
     TEXTURES_SPEEDHACK=1 BUFFERS_SPEEDHACK=1 \
-    CIRCULAR_VERTEX_POOL=2 HAVE_WVP_ON_GPU=1 \
     SAMPLERS_SPEEDHACK=1 HAVE_SHADER_CACHE=1
 ```
 

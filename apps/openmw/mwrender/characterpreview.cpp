@@ -21,6 +21,9 @@
 #include <components/resource/scenemanager.hpp>
 #include <components/sceneutil/depth.hpp>
 #include <components/sceneutil/lightmanager.hpp>
+#ifdef __vita__
+#include <components/vita/VitaShader.h>
+#endif
 #include <components/sceneutil/nodecallback.hpp>
 #include <components/sceneutil/rtt.hpp>
 #include <components/sceneutil/shadow.hpp>
@@ -170,20 +173,21 @@ namespace MWRender
                 mPerspectiveMatrix = osg::Matrixf::perspective(fovYDegrees, mAspectRatio, znear, zfar);
             mGroup->getOrCreateStateSet()->addUniform(new osg::Uniform("projectionMatrix", mPerspectiveMatrix));
             mViewMatrix = osg::Matrixf::identity();
-#ifdef __vita__
-            setColorBufferInternalFormat(GL_RGBA);
-            setDepthBufferInternalFormat(GL_DEPTH_COMPONENT16);
-#else
             setColorBufferInternalFormat(GL_RGBA);
             setDepthBufferInternalFormat(GL_DEPTH24_STENCIL8);
-#endif
         }
 
         void setDefaults(osg::Camera* camera) override
         {
             camera->setName("CharacterPreview");
             camera->setReferenceFrame(osg::Camera::ABSOLUTE_RF);
+#ifdef __vita__
+            // Vita/vitaGL has no pbuffer support; forcing FBO-only avoids a
+            // silent fallback to the default framebuffer on FBO setup failure.
+            camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+#else
             camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT, osg::Camera::PIXEL_BUFFER_RTT);
+#endif
             camera->setClearColor(osg::Vec4(0.f, 0.f, 0.f, 0.f));
             camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
             camera->setProjectionMatrixAsPerspective(fovYDegrees, mAspectRatio, znear, zfar);
@@ -246,6 +250,10 @@ namespace MWRender
         });
         lightManager->setStartLight(1);
         osg::ref_ptr<osg::StateSet> stateset = lightManager->getOrCreateStateSet();
+#ifdef __vita__
+        // VitaLit uniforms: preview has its own subtree, doesn't inherit sceneRoot's.
+        Vita::setupSceneUniforms(stateset);
+#endif
         stateset->setDefine("FORCE_OPAQUE", "1", osg::StateAttribute::ON);
         stateset->setMode(GL_LIGHTING, osg::StateAttribute::ON);
         stateset->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
@@ -326,6 +334,12 @@ namespace MWRender
         light->setLinearAttenuation(0.f);
         light->setQuadraticAttenuation(0.f);
         lightManager->setSunlight(light);
+
+#ifdef __vita__
+        Vita::updateSceneUniforms(stateset, osg::Vec3f(positionX, positionY, positionZ),
+            osg::Vec3f(diffuseR, diffuseG, diffuseB), osg::Vec3f(ambientR, ambientG, ambientB),
+            10000000.f, 10000000.f, osg::Vec4f(0.f, 0.f, 0.f, 0.f));
+#endif
 
         osg::ref_ptr<osg::LightSource> lightSource = new osg::LightSource;
         lightSource->setLight(light);

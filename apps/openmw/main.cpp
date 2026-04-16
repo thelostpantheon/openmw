@@ -329,6 +329,8 @@ int runApplication(int argc, char* argv[])
     if (parseOptions(argc, argv, *engine, cfgMgr))
     {
 #ifdef __vita__
+        Vita::breadcrumb("parseOptions() done, checking SELECT");
+        engine->setForceRescan(Vita::isSelectHeld());
         Vita::breadcrumb("parseOptions() done, starting engine");
 #endif
         if (!Misc::checkRequiredOSGPluginsArePresent())

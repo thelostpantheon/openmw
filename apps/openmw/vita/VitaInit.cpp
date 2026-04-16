@@ -2,6 +2,7 @@
 
 #include "VitaInit.h"
 
+#include <psp2/ctrl.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 #include <psp2/kernel/sysmem.h>
@@ -761,6 +762,17 @@ namespace Vita
 
         debugLog("Vita platform defaults applied.");
         logMemoryStatus("Post-defaults");
+    }
+
+    bool isSelectHeld()
+    {
+        sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
+        SceCtrlData pad{};
+        sceCtrlPeekBufferPositive(0, &pad, 1);
+        bool held = (pad.buttons & SCE_CTRL_SELECT) != 0;
+        if (held)
+            breadcrumb("SELECT held — forcing mod rescan");
+        return held;
     }
 
 } // namespace Vita

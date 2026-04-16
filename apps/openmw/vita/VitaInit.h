@@ -40,6 +40,9 @@ namespace Vita
 
     // Replenish emergency reserve after OOM recovery.
     void replenishEmergencyReserve();
+
+    // Check if SELECT is held right now (raw SCE ctrl, no SDL needed).
+    bool isSelectHeld();
 }
 
 // Convenience macro that compiles to nothing on non-Vita

@@ -366,6 +366,10 @@ if (VITA AND BUILD_OPENMW)
             ${CMAKE_CURRENT_BINARY_DIR}/openmw.velf
         COMMENT "Expanding BSS in VELF (zeroing uninitialized data)"
     )
+    # eboot.bin-self depends on openmw.velf (file), but file-level deps bypass
+    # POST_BUILD. Force target-level dep so fix-bss.py finishes before
+    # vita-make-fself reads the VELF. Without this, -jN causes a read race.
+    add_dependencies(eboot.bin-self openmw-velf)
 
     # LiveArea assets
     set(VITA_DATA_DIR ${CMAKE_SOURCE_DIR}/data/vita)

@@ -101,7 +101,11 @@ namespace MWGui
         , mBackground(nullptr)
     {
         getWidget(mVersionText, "VersionText");
+#ifdef __vita__
+        mVersionText->setCaption(versionDescription + "\n#{FFDD44}Hold SELECT at boot to rescan mods");
+#else
         mVersionText->setCaption(versionDescription);
+#endif
 
         constexpr VFS::Path::NormalizedView menuBackgroundVideo("video/menu_background.bik");
 

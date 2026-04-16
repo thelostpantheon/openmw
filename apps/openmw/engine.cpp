@@ -42,6 +42,7 @@
 #include <components/sceneutil/workqueue.hpp>
 
 #include <components/files/configurationmanager.hpp>
+#include <components/files/scancache.hpp>
 
 #include <components/version/version.hpp>
 
@@ -465,6 +466,13 @@ void OMW::Engine::setDataDirs(const Files::PathContainer& dataDirs)
     mDataDirs = dataDirs;
     mDataDirs.insert(mDataDirs.begin(), mResDir / "vfs");
     mFileCollections = Files::Collections(mDataDirs);
+
+#ifdef __vita__
+    const auto cachePath = mCfgMgr.getUserConfigPath() / "scan_cache.bin";
+    Files::Collections::CollectionsMap cached;
+    if (Files::loadScanCache(cachePath, mDataDirs, cached))
+        mFileCollections.setCollections(std::move(cached));
+#endif
 }
 
 // Add BSA archive
@@ -774,7 +782,24 @@ void OMW::Engine::prepareEngine()
 
     mVFS = std::make_unique<VFS::Manager>();
 
+#ifdef __vita__
+    {
+        auto cacheDir = mCfgMgr.getUserConfigPath();
+        if (mForceRescan)
+        {
+            Log(Debug::Info) << "Force rescan — clearing VFS caches";
+            Files::clearScanCache(cacheDir / "scan_cache.bin");
+            std::error_code ec;
+            for (const auto& entry : std::filesystem::directory_iterator(cacheDir, ec))
+                if (entry.path().filename().string().starts_with("vfs_dir_"))
+                    std::filesystem::remove(entry.path(), ec);
+        }
+        VFS::registerArchives(mVFS.get(), mFileCollections, mArchives, true,
+            &mEncoder.get()->getStatelessEncoder(), cacheDir);
+    }
+#else
     VFS::registerArchives(mVFS.get(), mFileCollections, mArchives, true, &mEncoder.get()->getStatelessEncoder());
+#endif
 
     mResourceSystem = std::make_unique<Resource::ResourceSystem>(
         mVFS.get(), Settings::cells().mCacheExpiryDelay, &mEncoder.get()->getStatelessEncoder());
@@ -909,6 +934,8 @@ void OMW::Engine::prepareEngine()
     listener->loadingOn();
     mWorld->loadData(mFileCollections, mContentFiles, mGroundcoverFiles, mEncoder.get(), listener);
     listener->loadingOff();
+    Files::saveScanCache(
+        mCfgMgr.getUserConfigPath() / "scan_cache.bin", mDataDirs, mFileCollections.getCollections());
     Vita::logMemoryStatus("Post-data-load");
 #else
     VITA_CRUMB("prepareEngine() loading data async");

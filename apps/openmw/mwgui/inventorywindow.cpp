@@ -97,9 +97,10 @@ namespace MWGui
         , mUpdateNextFrame(false)
         , mPendingControllerAction(ControllerAction::None)
     {
+        // rebuild() before wrapping so the RTT attachments exist when MyGUI references the texture.
+        mPreview->rebuild();
         mPreviewTexture
             = std::make_unique<MyGUIPlatform::OSGTexture>(mPreview->getTexture(), mPreview->getTextureStateSet());
-        mPreview->rebuild();
 
         mMainWidget->castType<MyGUI::Window>()->eventWindowChangeCoord
             += MyGUI::newDelegate(this, &InventoryWindow::onWindowResize);
@@ -120,7 +121,7 @@ namespace MWGui
         mAvatarImage->eventMouseButtonClick += MyGUI::newDelegate(this, &InventoryWindow::onAvatarClicked);
         mAvatarImage->setRenderItemTexture(mPreviewTexture.get());
 #ifdef __vita__
-        // vitaGL with HAVE_UNFLIPPED_FBOS renders FBOs top-to-bottom; flip Y
+        // Standard GL FBOs render bottom-to-top; flip Y for correct display.
         mAvatarImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
 #else
         mAvatarImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
