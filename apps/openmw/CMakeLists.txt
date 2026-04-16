@@ -344,9 +344,6 @@ if (VITA AND BUILD_OPENMW)
     set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
 
     # Fix ARM relocations and veneer literal pools BEFORE conversion.
-    # TODO(vita): fix-vtable-relocs.py was invoked between fix-relocations and
-    # fix-veneers but the script is not in this tree. Runtime vtable dispatch
-    # crashes may reappear until it is reintroduced.
     add_custom_command(TARGET openmw POST_BUILD
         COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-relocations.py
             ${CMAKE_CURRENT_BINARY_DIR}/openmw

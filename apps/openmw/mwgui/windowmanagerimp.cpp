@@ -2083,9 +2083,6 @@ namespace MWGui
 
     void WindowManager::playVideo(std::string_view name, bool allowSkipping, bool overrideSounds)
     {
-#ifdef __vita__
-        return; // Video playback disabled on Vita for now
-#endif
         mVideoWidget->playVideo("video\\" + std::string{ name });
 
         mVideoWidget->eventKeyButtonPressed.clear();

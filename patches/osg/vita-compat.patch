@@ -1,20 +1,9 @@
-Vita compatibility patch for OpenSceneGraph (OSG).
-
-VitaSDK's newlib libc does not provide:
-  - struct stat64 / stat64() — OSG's osgDB relies on these for file metadata.
-    We alias stat64 -> stat (Vita's off_t is already 32-bit; stat is sufficient).
-  - PATH_MAX (POSIX makes it optional). OSG assumes it's always defined by
-    <limits.h>; we fall back to 4096 when it isn't.
-  - Working dlsym(). OSG's getGLExtensionFuncPtr falls through to a generic
-    Unix branch that calls dlsym(0, name), which on newlib always returns
-    NULL. Every extension function pointer ends up null and the first GL
-    call through one (e.g. glDisableVertexAttribArray) crashes with PC=0.
-    We route through vitaGL's vglGetProcAddress, which carries a 348-entry
-    static proctable covering every GL function vitaGL exposes.
-
-C++17 operator resolution changes (GCC 10+) combined with OSG_USE_FLOAT_MATRIX
-also create an ambiguous operator!= between osg::RefMatrixf and osg::Matrixd
-in osgShadow; cast to disambiguate.
+Vita compatibility patch for OpenSceneGraph (OSG):
+  - alias stat64 -> stat (newlib has no stat64)
+  - fall back PATH_MAX to 4096 (newlib omits it from <limits.h>)
+  - route getGLExtensionFuncPtr through vitaGL's vglGetProcAddress
+    (newlib dlsym is non-functional; Unix fallback returns NULL)
+  - cast RefMatrixf to Matrixd for ambiguous operator!= under OSG_USE_FLOAT_MATRIX
 
 --- a/src/osgDB/FileUtils.cpp
 +++ b/src/osgDB/FileUtils.cpp

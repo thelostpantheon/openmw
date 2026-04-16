@@ -31,7 +31,11 @@ namespace MWGui
 
     void VideoWidget::playVideo(const std::string& video)
     {
+        // Vita: skip audio factory to avoid OpenAL-drain deadlock in ParseThread.
+        // Cinematics play silent.
+#ifndef __vita__
         mPlayer->setAudioFactory(new MWSound::MovieAudioFactory());
+#endif
 
         Files::IStreamPtr videoStream;
         try

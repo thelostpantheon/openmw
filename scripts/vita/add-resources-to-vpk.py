@@ -1,16 +1,10 @@
 #!/usr/bin/env python3
-"""
-Inject a directory tree into a VPK (zip) after vita_create_vpk has built it.
-
-vita_create_vpk only packs explicit FILE src=dst entries; OpenMW's 300+ generated
-resources (shaders, fonts, lua_api, vfs, vfs-mw, defaultfilters) live in
-${CMAKE_BINARY_DIR}/resources and would otherwise be missing at runtime.
+"""Inject a directory tree into a VPK (zip) under resources/.
 
 Usage: add-resources-to-vpk.py <vpk> <resources_dir>
 
-The resources_dir contents are placed under "resources/" inside the VPK, so
-"resources/shaders/foo.glsl" maps to "<resources_dir>/shaders/foo.glsl".
-Idempotent: if a path already exists in the VPK it is replaced, not duplicated.
+vita_create_vpk only packs explicit FILE entries; this adds the generated
+resources/ tree that OpenMW needs at runtime. Idempotent on re-run.
 """
 
 import os
@@ -26,7 +20,6 @@ def add_resources(vpk_path: str, resources_dir: str) -> int:
         print(f"Error: resources dir not found: {resources_dir}", file=sys.stderr)
         return 1
 
-    # Walk once to build the src->arcname list
     to_add = []
     for root, _dirs, files in os.walk(resources_dir):
         for name in files:
@@ -35,17 +28,14 @@ def add_resources(vpk_path: str, resources_dir: str) -> int:
             arcname = "resources/" + rel.replace(os.sep, "/")
             to_add.append((abs_path, arcname))
 
-    # Read existing VPK names so we can skip/replace rather than duplicate
     with zipfile.ZipFile(vpk_path, "r") as zf:
         existing = set(zf.namelist())
 
-    # If any arcnames collide, rewrite the VPK (zipfile's append mode
-    # cannot replace entries, only add). Otherwise cheap append is fine.
     arcnames = {a for _s, a in to_add}
     collisions = arcnames & existing
 
     if collisions:
-        # Rewrite: copy non-colliding entries from old VPK, add fresh files
+        # zipfile's append mode can't replace entries, only add; rewrite instead.
         tmp_path = vpk_path + ".tmp"
         with zipfile.ZipFile(vpk_path, "r") as zin, \
              zipfile.ZipFile(tmp_path, "w", zipfile.ZIP_DEFLATED) as zout:

@@ -171,8 +171,7 @@ if(NOT OPENMW_USE_SYSTEM_OSG)
 
     # OSGoS branch 3.6
     include(FetchContent)
-    # PATCH_COMMAND applies Vita-only fixes to osgDB (stat64, PATH_MAX).
-    # `patch -N` skips already-applied hunks so re-runs are idempotent.
+    # Vita-only OSG compatibility patches.
     if(VITA)
         set(_osg_patch_cmd PATCH_COMMAND patch -p1 -N -r- --input=${CMAKE_SOURCE_DIR}/patches/osg/vita-compat.patch || true)
     else()

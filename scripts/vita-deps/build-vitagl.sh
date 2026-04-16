@@ -1,11 +1,6 @@
 #!/bin/bash
 # Build vitaGL for OpenMW Vita port.
-#
-# Flag set is kept in sync with Dockerfile.vita so local and Docker builds
-# produce an identical libvitaGL.a.
-#
-# Usage: ./build-vitagl.sh [vitagl_dir]
-#   vitagl_dir defaults to ~/vitaGL
+# Usage: ./build-vitagl.sh [vitagl_dir]    (default: ~/vitaGL)
 set -e
 
 VITAGL_DIR="${1:-${HOME}/vitaGL}"
