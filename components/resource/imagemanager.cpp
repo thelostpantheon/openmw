@@ -399,28 +399,38 @@ namespace Resource
                 image = newImage;
             }
 
-            // Scale down large world textures to save memory.
-            // Skip UI/menu/font/book textures — they're small and text clarity matters.
+            // Cap world textures at 128px max edge. Cuts VRAM, texture-cache
+            // pressure, and upload bandwidth. Skip UI/fonts/book art so text
+            // and menu icons stay crisp. Skip normal/spec maps defensively
+            // (usually disabled on Vita anyway).
             {
-                bool isUI = false;
                 std::string_view p = path.value();
-                if (p.find("menu") != std::string_view::npos
+                bool isUI = p.find("menu") != std::string_view::npos
                     || p.find("Menu") != std::string_view::npos
                     || p.find("cursor") != std::string_view::npos
                     || p.find("font") != std::string_view::npos
                     || p.find("Font") != std::string_view::npos
                     || p.find("bookart") != std::string_view::npos
                     || p.find("levelup") != std::string_view::npos
-                    || p.find("scroll") != std::string_view::npos)
-                    isUI = true;
+                    || p.find("scroll") != std::string_view::npos
+                    || p.find("splash") != std::string_view::npos;
 
-                if (!isUI && !image->isCompressed() && image->s() > 1 && image->t() > 1)
+                bool isNormalSpec = p.find("_n.") != std::string_view::npos
+                    || p.find("_nm.") != std::string_view::npos
+                    || p.find("_s.") != std::string_view::npos;
+
+                constexpr int kMaxEdge = 128;
+                if (!isUI && !isNormalSpec && !image->isCompressed()
+                    && image->s() > 1 && image->t() > 1)
                 {
                     int s = image->s(), t = image->t();
-                    if (s > 512 || t > 512)
-                        image->scaleImage(std::max(s / 4, 1), std::max(t / 4, 1), image->r());
-                    else if (s > 128 || t > 128)
-                        image->scaleImage(std::max(s / 2, 1), std::max(t / 2, 1), image->r());
+                    while ((s > kMaxEdge || t > kMaxEdge) && s > 1 && t > 1)
+                    {
+                        s = std::max(s / 2, 1);
+                        t = std::max(t / 2, 1);
+                    }
+                    if (s != image->s() || t != image->t())
+                        image->scaleImage(s, t, image->r());
                 }
             }
 #endif

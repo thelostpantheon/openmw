@@ -83,6 +83,16 @@ namespace MWRender
         return isUnderwater ? mUnderwaterFogEnd : mLandFogEnd;
     }
 
+    void FogManager::rescaleToViewDistance(float newViewDistance)
+    {
+        if (mLandFogEnd > 0.f && mLandFogEnd < std::numeric_limits<float>::max())
+        {
+            float ratio = mLandFogStart / mLandFogEnd;
+            mLandFogEnd = newViewDistance;
+            mLandFogStart = newViewDistance * ratio;
+        }
+    }
+
     osg::Vec4f FogManager::getFogColor(bool isUnderwater) const
     {
         if (isUnderwater)

@@ -278,9 +278,13 @@ namespace MWRender
         mSceneManager->setUpNormalsRTForStateSet(mSkyRootNode->getOrCreateStateSet(), false);
 #ifdef __vita__
         // VitaLit always computes fog, but sky should be unfogged.
-        // Override fog uniforms so fogFactor is always ~1.0 (no fog).
         mSkyRootNode->getOrCreateStateSet()->addUniform(new osg::Uniform("u_fogStart", 0.f));
         mSkyRootNode->getOrCreateStateSet()->addUniform(new osg::Uniform("u_fogEnd", 1000000.f));
+        // Sky uses emission for color (vertex colors = sky color, unlit).
+        // Override colorMode to 1 (EMISSION) so VitaLit treats vertex colors
+        // as emission instead of diffuse (which would apply NdotL lighting).
+        mSkyRootNode->getOrCreateStateSet()->addUniform(
+            new osg::Uniform("colorMode", 1), osg::StateAttribute::OVERRIDE);
 #endif
         SceneUtil::ShadowManager::instance().disableShadowsForStateSet(*mSkyRootNode->getOrCreateStateSet());
         parentNode->addChild(mSkyRootNode);

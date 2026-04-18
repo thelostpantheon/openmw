@@ -37,19 +37,6 @@ static void countDrawables(const osg::Node* node, unsigned int& drawableCount, u
     }
 }
 
-// Recursively strip user data, callbacks, and mark STATIC for merge safety
-static void stripForMerge(osg::Node* node)
-{
-    node->setUserDataContainer(nullptr);
-    node->setName("");
-    node->setDataVariance(osg::Object::STATIC);
-    node->setUpdateCallback(nullptr);
-    node->setEventCallback(nullptr);
-    if (osg::Group* group = node->asGroup())
-        for (unsigned int i = 0; i < group->getNumChildren(); ++i)
-            stripForMerge(group->getChild(i));
-}
-
 #else
 #define VITA_CRUMB(msg)
 #endif
@@ -712,90 +699,6 @@ namespace MWWorld
                     | SceneUtil::Optimizer::MERGE_GEOMETRY
                     | SceneUtil::Optimizer::SHARE_DUPLICATE_STATE);
 
-            // Phase 2: Cross-object static geometry merging.
-            // Clone STAT-type objects into a merge group, run optimizer across all of them,
-            // then hide originals. This merges geometry from separate rocks/architecture/etc.
-            // that share compatible materials into single draw calls.
-            struct MergeCanOptimize : public SceneUtil::Optimizer::IsOperationPermissibleForObjectCallback
-            {
-                bool isOperationPermissibleForObjectImplementation(
-                    const SceneUtil::Optimizer*, const osg::Drawable*, unsigned int) const override
-                { return true; }
-                bool isOperationPermissibleForObjectImplementation(
-                    const SceneUtil::Optimizer*, const osg::Node* node, unsigned int) const override
-                { return node->getDataVariance() != osg::Object::DYNAMIC; }
-            };
-            osg::ref_ptr<osg::Group> mergeGroup = new osg::Group;
-            std::vector<osg::ref_ptr<osg::Node>> originals;
-
-            for (unsigned int i = 0; i < cellRoot->getNumChildren(); ++i)
-            {
-                osg::Node* child = cellRoot->getChild(i);
-
-                if (child->getNodeMask() != MWRender::Mask_Object)
-                    continue;
-                if (child->getUpdateCallback())
-                    continue;
-
-                // Check for PtrHolder with ESM::Static type
-                auto* udc = child->getUserDataContainer();
-                if (!udc)
-                    continue;
-
-                MWRender::PtrHolder* holder = nullptr;
-                for (unsigned int j = 0; j < udc->getNumUserObjects(); ++j)
-                {
-                    holder = dynamic_cast<MWRender::PtrHolder*>(udc->getUserObject(j));
-                    if (holder)
-                        break;
-                }
-                if (!holder || holder->mPtr.getType() != ESM::Static::sRecordId)
-                    continue;
-
-                auto* pat = dynamic_cast<SceneUtil::PositionAttitudeTransform*>(child);
-                if (!pat)
-                    continue;
-
-                // Build world matrix from PAT position/attitude/scale
-                osg::Matrix mat;
-                pat->computeLocalToWorldMatrix(mat, nullptr);
-
-                osg::ref_ptr<osg::MatrixTransform> mt = new osg::MatrixTransform(mat);
-                for (unsigned int c = 0; c < pat->getNumChildren(); ++c)
-                {
-                    osg::ref_ptr<osg::Node> cloned = static_cast<osg::Node*>(
-                        pat->getChild(c)->clone(osg::CopyOp(osg::CopyOp::DEEP_COPY_NODES
-                            | osg::CopyOp::DEEP_COPY_DRAWABLES | osg::CopyOp::DEEP_COPY_ARRAYS
-                            | osg::CopyOp::DEEP_COPY_PRIMITIVES)));
-                    stripForMerge(cloned.get());
-                    mt->addChild(cloned);
-                }
-
-                mergeGroup->addChild(mt);
-                originals.push_back(child);
-            }
-
-            if (mergeGroup->getNumChildren() > 1)
-            {
-                SceneUtil::Optimizer mergeOptimizer;
-                mergeOptimizer.setIsOperationPermissibleForObjectCallback(new MergeCanOptimize);
-                mergeOptimizer.optimize(mergeGroup.get(),
-                    SceneUtil::Optimizer::FLATTEN_STATIC_TRANSFORMS
-                        | SceneUtil::Optimizer::REMOVE_REDUNDANT_NODES
-                        | SceneUtil::Optimizer::MERGE_GEOMETRY
-                        | SceneUtil::Optimizer::SHARE_DUPLICATE_STATE);
-
-                for (auto& orig : originals)
-                    orig->setNodeMask(0);
-
-                mergeGroup->setNodeMask(MWRender::Mask_Object);
-                cellRoot->addChild(mergeGroup);
-
-                unsigned int mergedDrawables = 0, mergedTris = 0;
-                countDrawables(mergeGroup.get(), mergedDrawables, mergedTris);
-                Log(Debug::Info) << "Vita cross-object merge: " << originals.size()
-                    << " STATs -> " << mergedDrawables << " drawables, " << mergedTris << " tris";
-            }
         }
 
         // Submit batched cell to ICO for GL compilation during loading screen
@@ -1161,9 +1064,8 @@ namespace MWWorld
         const DetourNavigator::UpdateGuard* navigatorUpdateGuard)
     {
         VITA_CRUMB("promoteCellToFull() enter");
-        // Flush before promote to reclaim demoted cell resources.
+        // Release unref'd demoted-cell resources but keep the shared cache.
         mRendering.flushUnrefQueueImmediate();
-        mRendering.getResourceSystem()->clearCache();
         {
             char buf[128];
             snprintf(buf, sizeof(buf), "Promote cell %d,%d LITE->FULL, heap %dMB (post-flush)",
@@ -1495,14 +1397,14 @@ namespace MWWorld
         }
 
 #ifdef __vita__
-        // Multi-pass flush: unref queue → cache evict, repeated for ref chains.
-        for (int pass = 0; pass < 3; ++pass)
+        // Two-pass flush: each pass frees one layer of the reference chain
+        // (pass 1: statesets/drawables, pass 2: textures/images they held).
+        for (int pass = 0; pass < 2; ++pass)
         {
             mRendering.flushUnrefQueueImmediate();
             mRendering.getResourceSystem()->clearCache();
         }
-        // Force-expire all time-based cache entries
-        mRendering.getResourceSystem()->updateCache(mRendering.getReferenceTime() + 1000.0);
+        mRendering.getResourceSystem()->updateCache(mRendering.getReferenceTime());
         Vita::logMemoryStatus("Post-flush");
 #endif
 
@@ -1633,13 +1535,10 @@ namespace MWWorld
                 if (isCenter)
                 {
                     loadCell(cell, loadingListener, changeEvent, pos, navigatorUpdateGuard.get());
-                    // Flush after center load to free cache before LITE cells.
-                    mRendering.flushUnrefQueueImmediate();
-                    mRendering.getResourceSystem()->clearCache();
                     {
                         struct mallinfo mi = mallinfo();
                         char buf[128];
-                        snprintf(buf, sizeof(buf), "Loaded cell (%d,%d) FULL+flush: heap %dKB used",
+                        snprintf(buf, sizeof(buf), "Loaded cell (%d,%d) FULL: heap %dKB used",
                             x, y, mi.uordblks / 1024);
                         Vita::breadcrumb(buf);
                     }
@@ -1647,7 +1546,6 @@ namespace MWWorld
                 else
                 {
                     loadCellLite(cell, loadingListener, pos, navigatorUpdateGuard.get());
-                    // Flush after each LITE cell to prevent cache accumulation.
                     mRendering.flushUnrefQueueImmediate();
                     mRendering.getResourceSystem()->updateCache(mRendering.getReferenceTime());
                     {

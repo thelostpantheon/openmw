@@ -666,9 +666,10 @@ namespace Vita
         Settings::shaders().mWeatherParticleOcclusion.set(false);
         Settings::shaders().mAntialiasAlphaTest.set(false);
         Settings::shaders().mAdjustCoverageForAlphaTest.set(false);
-        Settings::shaders().mMaximumLightDistance.set(256.0f);    // cull lights beyond ~4m (was 1024)
-        Settings::shaders().mLightFadeStart.set(0.8f);            // fade begins at 80% of max distance
-        Settings::shaders().mLightBoundsMultiplier.set(0.5f);     // tighter bounds = fewer lights per drawable (was 1.0)
+        Settings::shaders().mMaxLights.set(4);
+        Settings::shaders().mMaximumLightDistance.set(256.0f);
+        Settings::shaders().mLightFadeStart.set(0.8f);
+        Settings::shaders().mLightBoundsMultiplier.set(0.5f);
 
         // --- Shadows: fully disabled ---
         Settings::shadows().mEnableShadows.set(false);
@@ -687,11 +688,12 @@ namespace Vita
         Settings::terrain().mCompositeMapResolution.set(64);      // lower resolution terrain textures
 
         // --- Camera: draw distance balanced for playability ---
-        Settings::camera().mViewingDistance.set(2500.0f);         // reduced for better performance
+        Settings::camera().mViewingDistance.set(2048.0f);
         Settings::camera().mReverseZ.set(false);
-        Settings::camera().mSmallFeatureCulling.set(true);       // cull tiny objects for fewer draw calls
-        Settings::camera().mSmallFeatureCullingPixelSize.set(4.0f); // aggressive threshold for 640x368
+        Settings::camera().mSmallFeatureCulling.set(true);
+        Settings::camera().mSmallFeatureCullingPixelSize.set(4.0f);
         Settings::camera().mFieldOfView.set(50.0f);
+        Settings::camera().mVitaDynamicFog.set(true);
 
         // --- Water: minimal quality ---
         Settings::water().mShader.set(false);
@@ -714,12 +716,13 @@ namespace Vita
         // when main thread modifies world state while physics worker is mid-computation) ---
         Settings::physics().mAsyncNumThreads.set(1);
 
-        // --- Cells: preloading disabled (ICO calls missing GL functions) ---
-        // With extra memory mode (224MB heap), range 2 is sustainable
-        Settings::cells().mVitaCellRange.set(2);
-        Settings::cells().mPreloadEnabled.set(false);
+        // --- Cells: preload exterior grid only, conservative cache ---
+        // Async preload runs on its own thread; ICO compile ops run on the
+        // main GL thread so this is safe even though vitaGL can't handle
+        // multi-thread draws. Goal: hide cell-transition stutter.
+        Settings::cells().mPreloadEnabled.set(true);
         Settings::cells().mPreloadNumThreads.set(1);
-        Settings::cells().mPreloadExteriorGrid.set(false);
+        Settings::cells().mPreloadExteriorGrid.set(true);
         Settings::cells().mPreloadFastTravel.set(false);
         Settings::cells().mPreloadDoors.set(false);
         Settings::cells().mPreloadInstances.set(false);

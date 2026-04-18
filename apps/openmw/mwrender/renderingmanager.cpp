@@ -1720,6 +1720,7 @@ namespace MWRender
     void RenderingManager::setViewDistance(float distance, bool delay)
     {
         mViewDistance = distance;
+        mFog->rescaleToViewDistance(distance);
 
         if (delay)
         {

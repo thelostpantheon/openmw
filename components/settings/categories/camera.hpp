@@ -27,6 +27,7 @@ namespace Settings
         SettingValue<float> mFirstPersonFieldOfView{ mIndex, "Camera", "first person field of view",
             makeClampSanitizerFloat(1, 179) };
         SettingValue<bool> mReverseZ{ mIndex, "Camera", "reverse z" };
+        SettingValue<bool> mVitaDynamicFog{ mIndex, "Camera", "vita dynamic fog" };
     };
 }
 

@@ -93,7 +93,11 @@ namespace
 namespace MWPhysics
 {
     PhysicsSystem::PhysicsSystem(Resource::ResourceSystem* resourceSystem, osg::ref_ptr<osg::Group> parentNode)
+#ifdef __vita__
+        : mPhysicsDt(1.f / 30.f)
+#else
         : mPhysicsDt(1.f / 60.f)
+#endif
         , mShapeManager(std::make_unique<Resource::BulletShapeManager>(resourceSystem->getVFS(),
               resourceSystem->getSceneManager(), resourceSystem->getNifFileManager(),
               Settings::cells().mCacheExpiryDelay))

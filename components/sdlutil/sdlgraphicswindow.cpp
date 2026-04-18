@@ -116,14 +116,13 @@ namespace SDLUtil
         vglUseTripleBuffering(GL_TRUE);
         vglWaitVblankStart(GL_FALSE); // We have our own 30fps framerate limiter
         // Render at 640x368 — hardware scaler upscales to 960x544.
-        // Reduces fragment workload by ~55% (235K pixels vs 522K).
         // Use custom sizes to limit CDRAM grab. vglInitExtended takes ALL CDRAM
-        // by default (112MB!). We only need ~16MB for display + depth buffers.
+        // by default (112MB!). Vita has 128MB CDRAM total; display+depth ~5MB.
         // NOTE: vitaGL allocates pools via sceKernelAllocMemBlock, NOT malloc —
-        // these do NOT come from the 192MB newlib heap.
+        // these do NOT come from the 224MB newlib heap.
         vglInitWithCustomSizes(0x100000, 640, 368,
-            16 * 1024 * 1024,   // RAM pool: 16MB (vertex/index buffers + GUI)
-            48 * 1024 * 1024,   // CDRAM pool: 48MB (textures + display + depth)
+            24 * 1024 * 1024,   // RAM pool: 24MB (vertex/index buffers + GUI)
+            64 * 1024 * 1024,   // CDRAM pool: 64MB (textures + display + depth)
             0,                   // phycont: not needed
             0,                   // cdlg: not needed
             SCE_GXM_MULTISAMPLE_NONE);

@@ -1074,8 +1074,8 @@ void OMW::Engine::go()
     mViewer->setReleaseContextAtEndOfFrameHint(false);
 
 #ifdef __vita__
-    // Force single-threaded rendering — no separate cull/draw threads.
-    // Saves ~1-2MB thread stack memory on Vita's 192MB heap.
+    // DrawThreadPerContext crashes on launch — vitaGL/SceGxm isn't safe
+    // for draw submission from a non-main thread.
     mViewer->setThreadingModel(osgViewer::ViewerBase::SingleThreaded);
 #endif
 
@@ -1156,6 +1156,15 @@ void OMW::Engine::go()
     MWWorld::DateTimeManager& timeManager = *mWorld->getTimeManager();
     Misc::FrameRateLimiter frameRateLimiter = Misc::makeFrameRateLimiter(mEnvironment.getFrameRateLimit());
     const std::chrono::steady_clock::duration maxSimulationInterval(std::chrono::milliseconds(200));
+#ifdef __vita__
+    float vitaDynFogDist = Settings::camera().mViewingDistance;
+    bool vitaDynFogWasOn = false;
+    constexpr float kDynFogMin = 1800.f;
+    constexpr float kDynFogMax = 3500.f;
+    constexpr float kDynFogStep = 50.f;
+    constexpr float kDynFogTargetFps = 25.f;
+    constexpr float kDynFogDeadband = 2.f;
+#endif
     while (!mViewer->done() && !mStateManager->hasQuitRequest())
     {
         const double dt = std::chrono::duration_cast<std::chrono::duration<double>>(
@@ -1194,6 +1203,32 @@ void OMW::Engine::go()
             }
         }
 
+#ifdef __vita__
+        {
+            bool dynFogOn = Settings::camera().mVitaDynamicFog;
+            if (dynFogOn && !vitaDynFogWasOn)
+                vitaDynFogDist = Settings::camera().mViewingDistance;
+            vitaDynFogWasOn = dynFogOn;
+
+            if (dynFogOn)
+            {
+                double frameDt = std::chrono::duration<double>(
+                    frameRateLimiter.getLastFrameDuration()).count();
+                if (frameDt > 0.001)
+                {
+                    float fps = 1.0f / static_cast<float>(frameDt);
+                    if (fps < kDynFogTargetFps - kDynFogDeadband)
+                        vitaDynFogDist = std::max(vitaDynFogDist - kDynFogStep, kDynFogMin);
+                    else if (fps > kDynFogTargetFps + kDynFogDeadband)
+                        vitaDynFogDist = std::min(vitaDynFogDist + kDynFogStep, kDynFogMax);
+
+                    float current = Settings::camera().mViewingDistance;
+                    if (std::abs(vitaDynFogDist - current) > 1.f)
+                        Settings::camera().mViewingDistance.set(vitaDynFogDist);
+                }
+            }
+        }
+#endif
         frameRateLimiter.limit();
     }
 

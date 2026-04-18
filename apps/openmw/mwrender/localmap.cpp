@@ -169,6 +169,9 @@ namespace MWRender
     void LocalMap::setupRenderToTexture(
         int segmentX, int segmentY, float left, float top, const osg::Vec3d& upVector, float zmin, float zmax)
     {
+#ifdef __vita__
+        return;
+#endif
         mLocalMapRTTs.emplace_back(
             new LocalMapRenderToTexture(mSceneRoot, mMapResolution, mMapWorldSize, left, top, upVector, zmin, zmax));
 
