@@ -120,12 +120,7 @@ namespace MWGui
 
         mAvatarImage->eventMouseButtonClick += MyGUI::newDelegate(this, &InventoryWindow::onAvatarClicked);
         mAvatarImage->setRenderItemTexture(mPreviewTexture.get());
-#ifdef __vita__
-        // Standard GL FBOs render bottom-to-top; flip Y for correct display.
-        mAvatarImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 1.f, 1.f, 0.f));
-#else
         mAvatarImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
-#endif
 
         getWidget(mItemView, "ItemView");
         mItemView->eventItemClicked += MyGUI::newDelegate(this, &InventoryWindow::onItemSelected);
@@ -561,15 +556,9 @@ namespace MWGui
     {
         const MyGUI::IntSize viewport = getPreviewViewportSize();
         mPreview->setViewport(viewport.width, viewport.height);
-#ifdef __vita__
-        mAvatarImage->getSubWidgetMain()->_setUVSet(
-            MyGUI::FloatRect(0.f, viewport.height / float(mPreview->getTextureHeight()),
-                viewport.width / float(mPreview->getTextureWidth()), 0.f));
-#else
         mAvatarImage->getSubWidgetMain()->_setUVSet(
             MyGUI::FloatRect(0.f, 0.f, viewport.width / float(mPreview->getTextureWidth()),
                 viewport.height / float(mPreview->getTextureHeight())));
-#endif
     }
 
     void InventoryWindow::onNameFilterChanged(MyGUI::EditBox* sender)

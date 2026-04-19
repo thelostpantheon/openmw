@@ -698,7 +698,6 @@ namespace MWWorld
                     | SceneUtil::Optimizer::REMOVE_REDUNDANT_NODES
                     | SceneUtil::Optimizer::MERGE_GEOMETRY
                     | SceneUtil::Optimizer::SHARE_DUPLICATE_STATE);
-
         }
 
         // Submit batched cell to ICO for GL compilation during loading screen

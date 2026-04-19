@@ -367,9 +367,9 @@ namespace MWInput
 #ifdef __vita__
         // Vita layout
         // Face buttons:
-        //   ✕ = Activate    □ = Attack    △ = Jump    ○ = Inventory/Back
-        // Shoulders:
-        //   L = Toggle Weapon    R = Toggle Spell
+        //   ✕ = Activate    □ = Toggle Weapon    △ = Toggle Spell    ○ = Inventory/Back
+        // Shoulders (Xbox-style):
+        //   L = Jump    R = Attack/Use
         // D-pad:
         //   Up = Rest    Down = Sneak    Left = Cycle Weapon    Right = Cycle Spell
         // System:
@@ -378,11 +378,11 @@ namespace MWInput
         //   Top-left = Toggle POV    Top-right = QuickSave
         //   Start + Select = Console Commands
         defaultButtonBindings[A_Activate] = SDL_CONTROLLER_BUTTON_A;                 // ✕
-        defaultButtonBindings[A_Use] = SDL_CONTROLLER_BUTTON_X;                      // □
-        defaultButtonBindings[A_Jump] = SDL_CONTROLLER_BUTTON_Y;                     // △
+        defaultButtonBindings[A_ToggleWeapon] = SDL_CONTROLLER_BUTTON_X;              // □
+        defaultButtonBindings[A_ToggleSpell] = SDL_CONTROLLER_BUTTON_Y;               // △
         defaultButtonBindings[A_Inventory] = SDL_CONTROLLER_BUTTON_B;                // ○
-        defaultButtonBindings[A_ToggleWeapon] = SDL_CONTROLLER_BUTTON_LEFTSHOULDER;  // L
-        defaultButtonBindings[A_ToggleSpell] = SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;  // R
+        defaultButtonBindings[A_Jump] = SDL_CONTROLLER_BUTTON_LEFTSHOULDER;           // L (Xbox LB)
+        defaultButtonBindings[A_Use] = SDL_CONTROLLER_BUTTON_RIGHTSHOULDER;           // R (Xbox RB)
         defaultButtonBindings[A_GameMenu] = SDL_CONTROLLER_BUTTON_START;
         defaultButtonBindings[A_Journal] = SDL_CONTROLLER_BUTTON_BACK;               // SELECT
         defaultButtonBindings[A_Rest] = SDL_CONTROLLER_BUTTON_DPAD_UP;

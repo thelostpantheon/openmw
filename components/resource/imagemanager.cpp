@@ -419,7 +419,7 @@ namespace Resource
                     || p.find("_nm.") != std::string_view::npos
                     || p.find("_s.") != std::string_view::npos;
 
-                constexpr int kMaxEdge = 128;
+                constexpr int kMaxEdge = 64;
                 if (!isUI && !isNormalSpec && !image->isCompressed()
                     && image->s() > 1 && image->t() > 1)
                 {

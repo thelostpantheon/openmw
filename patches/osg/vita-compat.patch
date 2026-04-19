@@ -3,6 +3,8 @@ Vita compatibility patch for OpenSceneGraph (OSG):
   - fall back PATH_MAX to 4096 (newlib omits it from <limits.h>)
   - route getGLExtensionFuncPtr through vitaGL's vglGetProcAddress
     (newlib dlsym is non-functional; Unix fallback returns NULL)
+  - drop glGetRenderbufferParameteriv from isFrameBufferObjectSupported
+    check (vitaGL never exposes it, which otherwise disables all FBO RTT)
   - cast RefMatrixf to Matrixd for ambiguous operator!= under OSG_USE_FLOAT_MATRIX
 
 --- a/src/osgDB/FileUtils.cpp
@@ -60,6 +62,15 @@ Vita compatibility patch for OpenSceneGraph (OSG):
          #if defined(OSG_GLES1_AVAILABLE)
              static void *handle = dlopen("libGLESv1_CM.so", RTLD_NOW);
          #elif defined(OSG_GLES2_AVAILABLE)
+@@ -1156,7 +1167,9 @@
+         glFramebufferTexture2D != 0 &&
+         glFramebufferRenderbuffer != 0 &&
+         glGenerateMipmap != 0 &&
+-        glGetRenderbufferParameteriv != 0 &&
++#ifndef __vita__
++        glGetRenderbufferParameteriv != 0 &&
++#endif
+     ( OSG_GLES2_FEATURES || OSG_GLES1_FEATURES || isGLExtensionOrVersionSupported(contextID, "GL_EXT_framebuffer_object",3.0f) );
 --- a/src/osgShadow/MinimalCullBoundsShadowMap.cpp
 +++ b/src/osgShadow/MinimalCullBoundsShadowMap.cpp
 @@ -75,7 +75,9 @@

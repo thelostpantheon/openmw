@@ -943,6 +943,9 @@ namespace Resource
         const char* env = getenv("OPENMW_OPTIMIZE");
         unsigned int options
             = Optimizer::FLATTEN_STATIC_TRANSFORMS | Optimizer::REMOVE_REDUNDANT_NODES | Optimizer::MERGE_GEOMETRY;
+#ifdef __vita__
+        options |= Optimizer::STATIC_OBJECT_DETECTION | Optimizer::MAKE_FAST_GEOMETRY;
+#endif
         if (env)
         {
             std::string str(env);

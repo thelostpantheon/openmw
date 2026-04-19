@@ -174,7 +174,10 @@ namespace MWRender
             mGroup->getOrCreateStateSet()->addUniform(new osg::Uniform("projectionMatrix", mPerspectiveMatrix));
             mViewMatrix = osg::Matrixf::identity();
             setColorBufferInternalFormat(GL_RGBA);
+#ifndef __vita__
+            // vitaGL's FBO completeness is format-fragile; stick with the main-scene depth default.
             setDepthBufferInternalFormat(GL_DEPTH24_STENCIL8);
+#endif
         }
 
         void setDefaults(osg::Camera* camera) override
@@ -182,14 +185,17 @@ namespace MWRender
             camera->setName("CharacterPreview");
             camera->setReferenceFrame(osg::Camera::ABSOLUTE_RF);
 #ifdef __vita__
-            // Vita/vitaGL has no pbuffer support; forcing FBO-only avoids a
-            // silent fallback to the default framebuffer on FBO setup failure.
             camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+            // renderbuffers so the FBO stays complete (hidden depth is provided automatically).
+            camera->setImplicitBufferAttachmentMask(
+                osg::Camera::IMPLICIT_COLOR_BUFFER_ATTACHMENT,
+                osg::Camera::IMPLICIT_COLOR_BUFFER_ATTACHMENT);
+            camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 #else
             camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT, osg::Camera::PIXEL_BUFFER_RTT);
+            camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 #endif
             camera->setClearColor(osg::Vec4(0.f, 0.f, 0.f, 0.f));
-            camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
             camera->setProjectionMatrixAsPerspective(fovYDegrees, mAspectRatio, znear, zfar);
             camera->setViewport(0, 0, width(), height());
             camera->setRenderOrder(osg::Camera::PRE_RENDER);
@@ -338,7 +344,7 @@ namespace MWRender
 #ifdef __vita__
         Vita::updateSceneUniforms(stateset, osg::Vec3f(positionX, positionY, positionZ),
             osg::Vec3f(diffuseR, diffuseG, diffuseB), osg::Vec3f(ambientR, ambientG, ambientB),
-            10000000.f, 10000000.f, osg::Vec4f(0.f, 0.f, 0.f, 0.f));
+            0.f, 10000000.f, osg::Vec4f(0.f, 0.f, 0.f, 1.f));
 #endif
 
         osg::ref_ptr<osg::LightSource> lightSource = new osg::LightSource;
@@ -415,7 +421,8 @@ namespace MWRender
     InventoryPreview::InventoryPreview(
         osg::Group* parent, Resource::ResourceSystem* resourceSystem, const MWWorld::Ptr& character)
 #ifdef __vita__
-        : CharacterPreview(parent, resourceSystem, character, 128, 128, osg::Vec3f(0, 700, 64), osg::Vec3f(0, 0, 64))
+        // Portrait aspect (128x256 = 1:2) matches the camera fovY assumption used by the desktop 512x1024.
+        : CharacterPreview(parent, resourceSystem, character, 128, 256, osg::Vec3f(0, 700, 71), osg::Vec3f(0, 0, 71))
 #else
         : CharacterPreview(parent, resourceSystem, character, 512, 1024, osg::Vec3f(0, 700, 71), osg::Vec3f(0, 0, 71))
 #endif

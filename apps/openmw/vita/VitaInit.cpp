@@ -666,7 +666,7 @@ namespace Vita
         Settings::shaders().mWeatherParticleOcclusion.set(false);
         Settings::shaders().mAntialiasAlphaTest.set(false);
         Settings::shaders().mAdjustCoverageForAlphaTest.set(false);
-        Settings::shaders().mMaxLights.set(4);
+        Settings::shaders().mMaxLights.set(2);
         Settings::shaders().mMaximumLightDistance.set(256.0f);
         Settings::shaders().mLightFadeStart.set(0.8f);
         Settings::shaders().mLightBoundsMultiplier.set(0.5f);
@@ -692,7 +692,7 @@ namespace Vita
         Settings::camera().mReverseZ.set(false);
         Settings::camera().mSmallFeatureCulling.set(true);
         Settings::camera().mSmallFeatureCullingPixelSize.set(4.0f);
-        Settings::camera().mFieldOfView.set(50.0f);
+        Settings::camera().mFieldOfView.set(45.0f);
         Settings::camera().mVitaDynamicFog.set(true);
 
         // --- Water: minimal quality ---
@@ -735,9 +735,9 @@ namespace Vita
         // --- Navigator: completely disabled ---
         Settings::navigator().mEnable.set(false);
 
-        // --- Lua: no worker thread, reduced memory ---
-        Settings::lua().mLuaNumThreads.set(0);
-        Settings::lua().mMemoryLimit.set(static_cast<std::uint64_t>(8 * 1024 * 1024));
+        // --- Lua: worker thread + larger memory pool to reduce GC churn ---
+        Settings::lua().mLuaNumThreads.set(1);
+        Settings::lua().mMemoryLimit.set(static_cast<std::uint64_t>(32 * 1024 * 1024));
         Settings::lua().mLuaProfiler.set(false);
 
         // --- General: texture quality ---
