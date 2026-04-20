@@ -684,6 +684,9 @@ int VideoState::stream_open(int stream_index, AVFormatContext *pFormatCtx)
         if (avcodec_open2(this->audio_ctx, codec, nullptr) < 0)
         {
             fprintf(stderr, "Unsupported codec!\n");
+            // On failure also null audio_st so ParseThread doesn't queue packets into audioq.
+            avcodec_free_context(&this->audio_ctx);
+            this->audio_st = nullptr;
             return -1;
         }
 

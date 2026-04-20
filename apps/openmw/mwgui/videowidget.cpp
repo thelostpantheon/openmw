@@ -31,9 +31,9 @@ namespace MWGui
 
     void VideoWidget::playVideo(const std::string& video)
     {
-        // Vita: skip audio factory to avoid OpenAL-drain deadlock in ParseThread.
-        // Cinematics play silent.
 #ifndef __vita__
+        // Vita: ffmpeg's binkaudio_rdft avcodec_open2 returns -1 for Morrowind's .bik files
+        // and gives no log output. Skip audio to let the video play silently.
         mPlayer->setAudioFactory(new MWSound::MovieAudioFactory());
 #endif
 

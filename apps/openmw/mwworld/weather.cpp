@@ -190,6 +190,19 @@ namespace MWWorld
         , mFlashDecrement(Fallback::Map::getFloat("Weather_" + name + "_Flash_Decrement"))
         , mFlashBrightness(0.0f)
     {
+        if (mRainDiameter <= 0.f)
+            mRainDiameter = 600.f;
+        if (mRainMinHeight <= 0.f)
+            mRainMinHeight = 200.f;
+        if (mRainMaxHeight <= mRainMinHeight)
+            mRainMaxHeight = mRainMinHeight + 500.f;
+        if (mRainEntranceSpeed <= 0.f)
+            mRainEntranceSpeed = 7.f;
+        if (mRainMaxRaindrops <= 0)
+            mRainMaxRaindrops = 650;
+        if (mRainThreshold <= 0.f)
+            mRainThreshold = 0.6f;
+
         mDL.FogFactor = dlFactor;
         mDL.FogOffset = dlOffset;
         mThunderSoundID[0]

@@ -42,7 +42,6 @@ if [ ! -f ffmpeg_done ]; then
         --disable-doc \
         --disable-network \
         --disable-everything \
-        --disable-asm \
         --enable-avcodec \
         --enable-avformat \
         --enable-avutil \
@@ -67,7 +66,8 @@ if [ ! -f ffmpeg_done ]; then
         --enable-parser=aac \
         --enable-parser=vorbis \
         --enable-protocol=file \
-        --extra-cflags="-Os -mcpu=cortex-a9 -mfpu=neon -ftree-vectorize -fomit-frame-pointer -ffunction-sections -fdata-sections -fvisibility=hidden"
+        --enable-pthreads \
+        --extra-cflags="-Os -mcpu=cortex-a9 -mfpu=neon -ftree-vectorize -fomit-frame-pointer"
 
     make -j$(nproc | awk '{print ($1 > 8) ? 8 : $1}')
     make install
