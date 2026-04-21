@@ -285,6 +285,9 @@ namespace MWRender
         // as emission instead of diffuse (which would apply NdotL lighting).
         mSkyRootNode->getOrCreateStateSet()->addUniform(
             new osg::Uniform("colorMode", 1), osg::StateAttribute::OVERRIDE);
+        // Tint sky toward u_fogColor near horizon so it smoothly meets fog-shrouded terrain.
+        mSkyRootNode->getOrCreateStateSet()->addUniform(
+            new osg::Uniform("u_skyHorizonBlend", 1.f), osg::StateAttribute::OVERRIDE);
 #endif
         SceneUtil::ShadowManager::instance().disableShadowsForStateSet(*mSkyRootNode->getOrCreateStateSet());
         parentNode->addChild(mSkyRootNode);

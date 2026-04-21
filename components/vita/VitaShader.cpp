@@ -12,7 +12,7 @@
 namespace Vita
 {
 
-    // ==================== VitaLit Shaders ====================
+    // VitaLit Shaders
     // Handles objects, actors, sky, batched statics.
     // Per-vertex (Gouraud) lighting with sun + ambient, linear fog, alpha test, single diffuse texture.
 
@@ -54,6 +54,8 @@ namespace Vita
         "uniform vec4 u_lightDiffuse6;\n"
         "uniform vec4 u_lightAtten6;\n"
         "\n"
+        "uniform float u_skyHorizonBlend;\n"
+        "\n"
         "attribute vec4 osg_Vertex;\n"
         "attribute vec3 osg_Normal;\n"
         "attribute vec4 osg_Color;\n"
@@ -62,6 +64,7 @@ namespace Vita
         "varying vec2 v_texCoord;\n"
         "varying vec4 v_color;\n"
         "varying float v_fogFactor;\n"
+        "varying float v_skyHorizon;\n"
         "\n"
         "vec3 calcPointLight(vec3 pos, vec4 lightPos, vec4 lightDiff, vec4 lightAtt, vec3 normal, vec3 matDiff) {\n"
         "    // Early exit if light is inactive (alpha = 0 means no light)\n"
@@ -110,7 +113,10 @@ namespace Vita
         "    v_texCoord = osg_MultiTexCoord0;\n"
         "\n"
         "    float dist = length(viewPos);\n"
-        "    v_fogFactor = clamp((u_fogEnd - dist) / (u_fogEnd - u_fogStart), 0.0, 1.0);\n"
+        "    float t = clamp(max(0.0, dist - u_fogStart) / max(u_fogEnd - u_fogStart, 1.0), 0.0, 1.0);\n"
+        "    v_fogFactor = 1.0 - smoothstep(0.0, 1.0, t);\n"
+        "    float alt = normalize(osg_Vertex.xyz + vec3(0.0, 0.0, 0.001)).z;\n"
+        "    v_skyHorizon = clamp(1.0 - alt * 3.0, 0.0, 1.0) * u_skyHorizonBlend;\n"
         "}\n";
 
     static const char* s_litFragSource =
@@ -121,15 +127,18 @@ namespace Vita
         "varying vec2 v_texCoord;\n"
         "varying vec4 v_color;\n"
         "varying float v_fogFactor;\n"
+        "varying float v_skyHorizon;\n"
         "\n"
         "void main() {\n"
         "    vec4 tex = texture2D(diffuseMap, v_texCoord);\n"
         "    vec4 color = vec4(tex.rgb * v_color.rgb, tex.a * v_color.a);\n"
         "    if (color.a < alphaRef) discard;\n"
-        "    gl_FragColor = mix(u_fogColor, color, v_fogFactor);\n"
+        "    vec4 outColor = mix(u_fogColor, color, v_fogFactor);\n"
+        "    outColor.rgb = mix(outColor.rgb, u_fogColor.rgb, v_skyHorizon);\n"
+        "    gl_FragColor = outColor;\n"
         "}\n";
 
-    // ==================== VitaTerrain Shaders ====================
+    //VitaTerrain Shaders
     // Handles terrain chunks. Same lighting as VitaLit but adds blend map sampling
     // on texture unit 1 and texture matrix uniforms for UV scaling.
 
@@ -193,7 +202,8 @@ namespace Vita
         "    v_texCoord2 = (u_texMat1 * vec4(osg_MultiTexCoord1, 0.0, 1.0)).xy;\n"
         "\n"
         "    float dist = length(viewPos);\n"
-        "    v_fogFactor = clamp((u_fogEnd - dist) / (u_fogEnd - u_fogStart), 0.0, 1.0);\n"
+        "    float t = clamp(max(0.0, dist - u_fogStart) / max(u_fogEnd - u_fogStart, 1.0), 0.0, 1.0);\n"
+        "    v_fogFactor = 1.0 - smoothstep(0.0, 1.0, t);\n"
         "}\n";
 
     static const char* s_terrainFragSource =
@@ -216,7 +226,7 @@ namespace Vita
         "    gl_FragColor = mix(u_fogColor, color, v_fogFactor);\n"
         "}\n";
 
-    // ==================== VitaTerrainMulti Shaders ====================
+    // VitaTerrainMulti Shaders
     // Single-pass terrain: samples up to 4 diffuse layers + 3 blendmaps.
     // Reduces terrain draw calls from N-per-chunk to 1-per-chunk.
     // Vertex shader is same as VitaTerrain (one diffuse UV + one blend UV).
@@ -350,7 +360,7 @@ namespace Vita
         }
     }
 
-    // ==================== Scene Uniforms ====================
+    // Scene Uniforms
 
     void setupSceneUniforms(osg::StateSet* ss)
     {
@@ -380,6 +390,9 @@ namespace Vita
         ss->addUniform(new osg::Uniform("u_texMat1", osg::Matrixf::identity()));
         ss->addUniform(new osg::Uniform("u_hasBlendMap", 0));
         ss->addUniform(new osg::Uniform("u_numLayers", 1));
+
+        // 0 = off (default), 1 = on (set on sky root only)
+        ss->addUniform(new osg::Uniform("u_skyHorizonBlend", 0.f));
     }
 
     void updateSceneUniforms(osg::StateSet* ss, const osg::Vec3f& sunDirView, const osg::Vec3f& sunColor,

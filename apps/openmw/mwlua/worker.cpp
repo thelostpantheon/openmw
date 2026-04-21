@@ -75,11 +75,6 @@ namespace MWLua
     {
         while (true)
         {
-#ifdef __vita__
-            // Vita: catch-all prevents noexcept terminate from PTE errors.
-            try
-            {
-#endif
             std::unique_lock<std::mutex> lk(mMutex);
             mCV.wait(lk, [&] { return mUpdateRequest.has_value() || mJoinRequest; });
             if (mJoinRequest)
@@ -95,19 +90,18 @@ namespace MWLua
             {
                 Log(Debug::Error) << "Failed to update LuaManager: " << e.what();
             }
+#ifdef __vita__
+            // Non-std exceptions must not skip the reset/notify below,
+            // otherwise finishUpdate on the main thread waits forever.
+            catch (...)
+            {
+                Log(Debug::Error) << "LuaWorker: non-std exception during update";
+            }
+#endif
 
             mUpdateRequest.reset();
             lk.unlock();
             mCV.notify_one();
-#ifdef __vita__
-            }
-            catch (...)
-            {
-                Log(Debug::Error) << "LuaWorker: unexpected exception in run loop";
-                // PTE failure — break out, main thread handles fallback.
-                break;
-            }
-#endif
         }
     }
 }
