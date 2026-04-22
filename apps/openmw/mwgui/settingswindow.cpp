@@ -261,6 +261,11 @@ namespace MWGui
 
         configureWidgets(mMainWidget, true);
 
+#ifdef __vita__
+        hideIrrelevantVitaWidgets();
+        updateVitaViewDistVisibility();
+#endif
+
         setTitle("#{OMWEngine:SettingsWindow}");
 
         getWidget(mSettingsTab, "SettingsTab");
@@ -469,6 +474,9 @@ namespace MWGui
     void SettingsWindow::onTabChanged(MyGUI::TabControl* /*sender*/, size_t /*index*/)
     {
         resetScrollbars();
+#ifdef __vita__
+        updateVitaViewDistVisibility();
+#endif
     }
 
     void SettingsWindow::onOkButtonClicked(MyGUI::Widget* /*sender*/)
@@ -691,6 +699,11 @@ namespace MWGui
         {
             Settings::get<bool>(getSettingCategory(sender), getSettingName(sender)).set(newState);
             apply();
+#ifdef __vita__
+            if (getSettingCategory(sender) == "Camera"
+                && getSettingName(sender) == "vita dynamic fog")
+                updateVitaViewDistVisibility();
+#endif
             return;
         }
     }
@@ -1066,8 +1079,45 @@ namespace MWGui
         updateVSyncModeSettings();
         resetScrollbars();
         renderScriptSettings();
+#ifdef __vita__
+        updateVitaViewDistVisibility();
+#endif
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mOkButton);
     }
+
+#ifdef __vita__
+    namespace
+    {
+        void setVitaWidgetVisible(const MWGui::Layout& layout, const char* name, bool visible)
+        {
+            try
+            {
+                MyGUI::Widget* w = nullptr;
+                layout.getWidget(w, name);
+                if (w)
+                    w->setVisible(visible);
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+
+    void SettingsWindow::updateVitaViewDistVisibility()
+    {
+        const bool visible = !Settings::camera().mVitaDynamicFog.get();
+        setVitaWidgetVisible(*this, "VitaViewDistRow", visible);
+        setVitaWidgetVisible(*this, "VitaViewDistText", visible);
+        setVitaWidgetVisible(*this, "VitaViewDistSlider", visible);
+    }
+
+    void SettingsWindow::hideIrrelevantVitaWidgets()
+    {
+        setVitaWidgetVisible(*this, "ResolutionList", false);
+        setVitaWidgetVisible(*this, "WindowModeList", false);
+        setVitaWidgetVisible(*this, "VSyncModeList", false);
+    }
+#endif
 
     void SettingsWindow::onClose()
     {

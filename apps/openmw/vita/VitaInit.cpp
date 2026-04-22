@@ -37,7 +37,7 @@
 // newlib crt0 resolve them as unmangled C symbols at process startup.
 extern "C" {
 // Extra memory mode (ATTRIBUTE2=12) grants ~357MB total user RAM.
-unsigned int _newlib_heap_size_user = 224 * 1024 * 1024;
+unsigned int _newlib_heap_size_user = 240 * 1024 * 1024;
 unsigned int sceUserMainThreadStackSize = 2 * 1024 * 1024;
 
 // Write an unsigned int as decimal to fd (no heap allocation)
@@ -207,6 +207,7 @@ namespace Vita
     static char s_emergencyBuf[256];
     static size_t s_minHeapFree = SIZE_MAX;
     static SceUID s_debugLogFd = -1;
+    void pollSelectHeld();
 
     // Emergency reserve: freed on first OOM to give breathing room for
     // the failing allocation to succeed. The per-frame watchdog then
@@ -498,6 +499,116 @@ namespace Vita
         free(found);
     }
 
+    // True if `dir` has a Meshes/ or Textures/ subdirectory.
+    static bool isDataRoot(const char* dir)
+    {
+        static const char* const subdirs[] = {
+            "Meshes", "meshes", "MESHES",
+            "Textures", "textures", "TEXTURES",
+        };
+        char probe[1024];
+        for (const char* name : subdirs)
+        {
+            snprintf(probe, sizeof(probe), "%s/%s", dir, name);
+            SceUID sd = sceIoDopen(probe);
+            if (sd >= 0)
+            {
+                sceIoDclose(sd);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static bool isSkippableModSubdir(const char* name)
+    {
+        return strcmp(name, "fomod") == 0 || strcmp(name, "FOMOD") == 0
+            || strcmp(name, "docs") == 0 || strcmp(name, "Docs") == 0
+            || strcmp(name, "images") == 0 || strcmp(name, "screenshots") == 0;
+    }
+
+    // Walks mods/ two levels deep and appends data= entries for data roots.
+    // Additive.
+    static void autoDetectModDataDirs()
+    {
+        static const char* modsDir = "ux0:data/openmw/mods";
+        static const char* cfgPath = "ux0:data/openmw/config/openmw.cfg";
+
+        SceUID dfd = sceIoDopen(modsDir);
+        if (dfd < 0)
+            return;
+
+        char* cfgBuf = nullptr;
+        readFileToBuffer(cfgPath, &cfgBuf);
+
+        SceUID fd = sceIoOpen(cfgPath, SCE_O_WRONLY | SCE_O_APPEND | SCE_O_CREAT, 0666);
+        if (fd < 0)
+        {
+            free(cfgBuf);
+            sceIoDclose(dfd);
+            return;
+        }
+
+        bool headerWritten = false;
+
+        auto tryAdd = [&](const char* path) {
+            if (cfgBuf && cfgContainsEntry(cfgBuf, "data", path))
+                return;
+            if (!headerWritten)
+            {
+                static const char hdr[] = "\n# Auto-detected mod data directories\n";
+                sceIoWrite(fd, hdr, sizeof(hdr) - 1);
+                headerWritten = true;
+            }
+            char line[1100];
+            int len = snprintf(line, sizeof(line), "data=\"%s\"\n", path);
+            if (len > 0)
+                sceIoWrite(fd, line, len);
+            char crumb[1100];
+            snprintf(crumb, sizeof(crumb), "Auto-detected mod data: %s", path);
+            breadcrumb(crumb);
+        };
+
+        SceIoDirent modEnt{};
+        while (sceIoDread(dfd, &modEnt) > 0)
+        {
+            if (modEnt.d_name[0] == '.')
+                continue;
+            if (!SCE_S_ISDIR(modEnt.d_stat.st_mode))
+                continue;
+
+            char modPath[1024];
+            snprintf(modPath, sizeof(modPath), "%s/%s", modsDir, modEnt.d_name);
+
+            // Flat-layout: mods/Foo/Meshes
+            if (isDataRoot(modPath))
+                tryAdd(modPath);
+
+            // FOMOD-layout: mods/Foo/00 Core/Meshes
+            SceUID sub = sceIoDopen(modPath);
+            if (sub < 0)
+                continue;
+            SceIoDirent subEnt{};
+            while (sceIoDread(sub, &subEnt) > 0)
+            {
+                if (subEnt.d_name[0] == '.')
+                    continue;
+                if (!SCE_S_ISDIR(subEnt.d_stat.st_mode))
+                    continue;
+                if (isSkippableModSubdir(subEnt.d_name))
+                    continue;
+                char subPath[1024];
+                snprintf(subPath, sizeof(subPath), "%s/%s", modPath, subEnt.d_name);
+                if (isDataRoot(subPath))
+                    tryAdd(subPath);
+            }
+            sceIoDclose(sub);
+        }
+        sceIoDclose(dfd);
+        sceIoClose(fd);
+        free(cfgBuf);
+    }
+
     void ensureDataDirectories()
     {
         sceIoMkdir("ux0:data/openmw", 0777);
@@ -506,6 +617,7 @@ namespace Vita
         sceIoMkdir("ux0:data/openmw/saves", 0777);
         sceIoMkdir("ux0:data/openmw/cache", 0777);
         sceIoMkdir("ux0:data/openmw/screenshots", 0777);
+        sceIoMkdir("ux0:data/openmw/mods", 0777);
 
         // Create default user openmw.cfg if it doesn't exist.
         // The bundled app0:/openmw.cfg has paths but no content= lines.
@@ -534,8 +646,8 @@ namespace Vita
             }
         }
 
-        // Scan Data Files/ and append any new .esm/.esp/.omwaddon/.bsa to config
         autoDetectContent();
+        autoDetectModDataDirs();
     }
 
     void initClocks()
@@ -575,6 +687,9 @@ namespace Vita
         sceIoRename("ux0:data/openmw/debug.log", "ux0:data/openmw/debug.log.prev");
 
         breadcrumb("BOOT: Vita::initialize() start");
+
+        // Latch SELECT early so holding it from launch is never missed.
+        pollSelectHeld();
 
         // Log what std::terminate is called with
         std::set_terminate([]() {
@@ -648,9 +763,10 @@ namespace Vita
     {
         debugLog("Applying Vita platform defaults...");
 
-        // --- Video: render at 640x368, hardware scaler upscales to 960x544 ---
-        Settings::video().mResolutionX.set(640);
-        Settings::video().mResolutionY.set(368);
+        // --- Video: render at 576x320 (both /32 aligned), hardware scaler
+        // upscales to 960x544. ~35% pixel count, balances quality and perf.
+        Settings::video().mResolutionX.set(576);
+        Settings::video().mResolutionY.set(320);
         Settings::video().mAntialiasing.set(0);
         Settings::video().mFramerateLimit.set(30.0f);
 
@@ -667,9 +783,9 @@ namespace Vita
         Settings::shaders().mAntialiasAlphaTest.set(false);
         Settings::shaders().mAdjustCoverageForAlphaTest.set(false);
         Settings::shaders().mMaxLights.set(2);
-        Settings::shaders().mMaximumLightDistance.set(256.0f);
-        Settings::shaders().mLightFadeStart.set(0.8f);
-        Settings::shaders().mLightBoundsMultiplier.set(0.5f);
+        Settings::shaders().mMaximumLightDistance.set(2048.0f);
+        Settings::shaders().mLightFadeStart.set(0.85f);
+        Settings::shaders().mLightBoundsMultiplier.set(1.0f);
 
         // --- Shadows: fully disabled ---
         Settings::shadows().mEnableShadows.set(false);
@@ -685,7 +801,7 @@ namespace Vita
         Settings::terrain().mLodFactor.set(12.0f);                // more aggressive LOD for better performance
         Settings::terrain().mObjectPaging.set(false);
         Settings::terrain().mObjectPagingActiveGrid.set(false);
-        Settings::terrain().mCompositeMapResolution.set(64);      // lower resolution terrain textures
+        Settings::terrain().mCompositeMapResolution.set(32);      // lower resolution terrain textures
 
         // --- Camera: draw distance balanced for playability ---
         Settings::camera().mViewingDistance.set(2048.0f);
@@ -712,8 +828,8 @@ namespace Vita
         // Must be >= viewing distance for NPCs to stay visible at draw distance.
         Settings::game().mActorsProcessingRange.set(3584);        // minimum allowed value
 
-        // --- Physics: disabled async (data abort in btGjkEpaSolver2::Penetration
-        // when main thread modifies world state while physics worker is mid-computation) ---
+        // --- Physics: async. Lua-vs-physics contention is avoided by
+        // running Lua on the main thread (see Lua settings below).
         Settings::physics().mAsyncNumThreads.set(1);
 
         // --- Cells: preload exterior grid only, conservative cache ---
@@ -727,7 +843,7 @@ namespace Vita
         Settings::cells().mPreloadDoors.set(false);
         Settings::cells().mPreloadInstances.set(false);
         Settings::cells().mPreloadCellCacheMin.set(1);
-        Settings::cells().mPreloadCellCacheMax.set(1);
+        Settings::cells().mPreloadCellCacheMax.set(2);
         Settings::cells().mCacheExpiryDelay.set(0.25f);
         Settings::cells().mTargetFramerate.set(30.0f);
         Settings::cells().mPointersCacheSize.set(40);
@@ -735,10 +851,12 @@ namespace Vita
         // --- Navigator: completely disabled ---
         Settings::navigator().mEnable.set(false);
 
-        // --- Lua: worker thread + larger memory pool to reduce GC churn ---
-        Settings::lua().mLuaNumThreads.set(1);
+        // --- Lua: main-thread. Avoids contention with the async physics worker.
+        Settings::lua().mLuaNumThreads.set(0);
         Settings::lua().mMemoryLimit.set(static_cast<std::uint64_t>(32 * 1024 * 1024));
         Settings::lua().mLuaProfiler.set(false);
+        // Halve GC step count — default 100 steps/frame adds ~0.5 ms on Vita.
+        Settings::lua().mGcStepsPerFrame.set(50);
 
         // --- General: texture quality ---
         Settings::general().mAnisotropy.set(0);
@@ -758,7 +876,7 @@ namespace Vita
 
         // --- Sound: minimal buffer cache ---
         Settings::sound().mBufferCacheMin.set(1);
-        Settings::sound().mBufferCacheMax.set(8);
+        Settings::sound().mBufferCacheMax.set(4);
 
         // --- Stereo: disabled ---
         Settings::stereo().mStereoEnabled.set(false);
@@ -767,15 +885,32 @@ namespace Vita
         logMemoryStatus("Post-defaults");
     }
 
-    bool isSelectHeld()
+    // Latched across boot: any early sample seeing SELECT held flips this on
+    // so the eventual check in main() doesn't depend on perfect timing.
+    static bool s_selectHeldLatched = false;
+
+    void pollSelectHeld()
     {
         sceCtrlSetSamplingMode(SCE_CTRL_MODE_ANALOG);
         SceCtrlData pad{};
-        sceCtrlPeekBufferPositive(0, &pad, 1);
-        bool held = (pad.buttons & SCE_CTRL_SELECT) != 0;
-        if (held)
-            breadcrumb("SELECT held — forcing mod rescan");
-        return held;
+        for (int i = 0; i < 4; ++i)
+        {
+            sceCtrlPeekBufferPositive(0, &pad, 1);
+            if (pad.buttons & SCE_CTRL_SELECT)
+            {
+                if (!s_selectHeldLatched)
+                    breadcrumb("SELECT held — forcing mod rescan");
+                s_selectHeldLatched = true;
+                return;
+            }
+            sceKernelDelayThread(10000); // 10ms
+        }
+    }
+
+    bool isSelectHeld()
+    {
+        pollSelectHeld();
+        return s_selectHeldLatched;
     }
 
 } // namespace Vita

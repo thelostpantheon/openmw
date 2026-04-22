@@ -7,6 +7,7 @@
 
 #include <osgDB/ReaderWriter>
 #include <osgDB/Registry>
+#include <osgUtil/RenderBin>
 #include <osgViewer/ViewerEventHandlers>
 
 #include <SDL.h>
@@ -59,6 +60,7 @@
 #include <components/sceneutil/unrefqueue.hpp>
 #include <components/sceneutil/util.hpp>
 
+#include <components/settings/settings.hpp>
 #include <components/settings/shadermanager.hpp>
 #include <components/settings/values.hpp>
 
@@ -1077,6 +1079,8 @@ void OMW::Engine::go()
     // DrawThreadPerContext crashes on launch — vitaGL/SceGxm isn't safe
     // for draw submission from a non-main thread.
     mViewer->setThreadingModel(osgViewer::ViewerBase::SingleThreaded);
+    // Cheapest sort — skip per-frame state sorting in render bins.
+    osgUtil::RenderBin::setDefaultRenderBinSortMode(osgUtil::RenderBin::TRAVERSAL_ORDER);
 #endif
 
     // Do not try to outsmart the OS thread scheduler (see bug #4785).
@@ -1157,13 +1161,19 @@ void OMW::Engine::go()
     Misc::FrameRateLimiter frameRateLimiter = Misc::makeFrameRateLimiter(mEnvironment.getFrameRateLimit());
     const std::chrono::steady_clock::duration maxSimulationInterval(std::chrono::milliseconds(200));
 #ifdef __vita__
-    float vitaDynFogDist = Settings::camera().mViewingDistance;
+    constexpr float kDynFogMin = 1500.f;
+    constexpr float kDynFogMax = 5000.f;
+    constexpr float kDynFogUserMoveThreshold = 300.f;
+    constexpr float kDynFogTargetFps = 20.f;
+    constexpr float kDynFogDeadband = 0.5f;
+    constexpr float kDynFogEmaAlpha = 0.15f;
+    constexpr float kDynFogLerpHz = 4.0f;
+    constexpr auto kDynFogAdjustInterval = std::chrono::milliseconds(250);
+    float vitaDynFogTarget = Settings::camera().mViewingDistance;
+    float vitaDynFogLastWritten = Settings::camera().mViewingDistance;
     bool vitaDynFogWasOn = false;
-    constexpr float kDynFogMin = 1800.f;
-    constexpr float kDynFogMax = 3500.f;
-    constexpr float kDynFogStep = 50.f;
-    constexpr float kDynFogTargetFps = 25.f;
-    constexpr float kDynFogDeadband = 2.f;
+    float vitaDynFogEmaDt = 1.0f / kDynFogTargetFps;
+    auto vitaDynFogLastAdjust = std::chrono::steady_clock::now();
 #endif
     while (!mViewer->done() && !mStateManager->hasQuitRequest())
     {
@@ -1205,26 +1215,74 @@ void OMW::Engine::go()
 
 #ifdef __vita__
         {
+            double frameDt = std::chrono::duration<double>(
+                frameRateLimiter.getLastFrameDuration()).count();
+            // Skip cell-load / pause spikes so they don't poison the fps EMA.
+            if (frameDt > 0.001 && frameDt < 0.2)
+                vitaDynFogEmaDt = (1.0f - kDynFogEmaAlpha) * vitaDynFogEmaDt
+                    + kDynFogEmaAlpha * static_cast<float>(frameDt);
+
             bool dynFogOn = Settings::camera().mVitaDynamicFog;
             if (dynFogOn && !vitaDynFogWasOn)
-                vitaDynFogDist = Settings::camera().mViewingDistance;
+            {
+                // Start tight and grow with fps headroom instead of shrinking under load.
+                vitaDynFogTarget = kDynFogMin;
+                vitaDynFogLastWritten = kDynFogMin;
+                Settings::camera().mViewingDistance.set(kDynFogMin);
+                static const Settings::CategorySettingVector kFilter{ { "Camera", "viewing distance" } };
+                const auto changes = Settings::Manager::getPendingChanges(kFilter);
+                if (!changes.empty())
+                {
+                    mWorld->processChangedSettings(changes);
+                    Settings::Manager::resetPendingChanges(kFilter);
+                }
+                vitaDynFogLastAdjust = std::chrono::steady_clock::now();
+            }
             vitaDynFogWasOn = dynFogOn;
 
             if (dynFogOn)
             {
-                double frameDt = std::chrono::duration<double>(
-                    frameRateLimiter.getLastFrameDuration()).count();
-                if (frameDt > 0.001)
+                float current = Settings::camera().mViewingDistance;
+                // Compare to what we last wrote, not to target — the lerp lags target naturally.
+                if (std::abs(current - vitaDynFogLastWritten) > kDynFogUserMoveThreshold)
                 {
-                    float fps = 1.0f / static_cast<float>(frameDt);
-                    if (fps < kDynFogTargetFps - kDynFogDeadband)
-                        vitaDynFogDist = std::max(vitaDynFogDist - kDynFogStep, kDynFogMin);
-                    else if (fps > kDynFogTargetFps + kDynFogDeadband)
-                        vitaDynFogDist = std::min(vitaDynFogDist + kDynFogStep, kDynFogMax);
+                    Settings::camera().mVitaDynamicFog.set(false);
+                    vitaDynFogWasOn = false;
+                }
+                else
+                {
+                    auto now = std::chrono::steady_clock::now();
+                    if (now - vitaDynFogLastAdjust >= kDynFogAdjustInterval)
+                    {
+                        vitaDynFogLastAdjust = now;
+                        float fps = 1.0f / vitaDynFogEmaDt;
+                        float fpsGap = fps - kDynFogTargetFps;
+                        float step = 0.f;
+                        if (fpsGap < -kDynFogDeadband)
+                            step = std::clamp(fpsGap * 25.f, -300.f, -20.f);
+                        else if (fpsGap > kDynFogDeadband)
+                            step = std::clamp(fpsGap * 20.f, 20.f, 150.f);
+                        vitaDynFogTarget
+                            = std::clamp(vitaDynFogTarget + step, kDynFogMin, kDynFogMax);
+                    }
 
-                    float current = Settings::camera().mViewingDistance;
-                    if (std::abs(vitaDynFogDist - current) > 1.f)
-                        Settings::camera().mViewingDistance.set(vitaDynFogDist);
+                    float lerpT
+                        = 1.0f - std::exp(-kDynFogLerpHz * static_cast<float>(frameDt));
+                    float newDist = current + (vitaDynFogTarget - current) * lerpT;
+                    if (std::abs(newDist - current) > 0.5f)
+                    {
+                        Settings::camera().mViewingDistance.set(newDist);
+                        vitaDynFogLastWritten = newDist;
+                        static const Settings::CategorySettingVector kFilter{
+                            { "Camera", "viewing distance" } };
+                        const auto changes
+                            = Settings::Manager::getPendingChanges(kFilter);
+                        if (!changes.empty())
+                        {
+                            mWorld->processChangedSettings(changes);
+                            Settings::Manager::resetPendingChanges(kFilter);
+                        }
+                    }
                 }
             }
         }

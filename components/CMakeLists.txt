@@ -408,6 +408,7 @@ endif()
 if(VITA)
     add_component_dir(vita
         VitaShader
+        CellCullCallback
     )
 endif()
 

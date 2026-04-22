@@ -32,27 +32,13 @@ namespace Vita
         "uniform vec4 u_materialAmbient;\n"
         "uniform vec4 u_materialEmission;\n"
         "\n"
+        // 2 light slots match Settings::shaders().mMaxLights on Vita.
         "uniform vec4 u_lightPos0;\n"
         "uniform vec4 u_lightDiffuse0;\n"
         "uniform vec4 u_lightAtten0;\n"
         "uniform vec4 u_lightPos1;\n"
         "uniform vec4 u_lightDiffuse1;\n"
         "uniform vec4 u_lightAtten1;\n"
-        "uniform vec4 u_lightPos2;\n"
-        "uniform vec4 u_lightDiffuse2;\n"
-        "uniform vec4 u_lightAtten2;\n"
-        "uniform vec4 u_lightPos3;\n"
-        "uniform vec4 u_lightDiffuse3;\n"
-        "uniform vec4 u_lightAtten3;\n"
-        "uniform vec4 u_lightPos4;\n"
-        "uniform vec4 u_lightDiffuse4;\n"
-        "uniform vec4 u_lightAtten4;\n"
-        "uniform vec4 u_lightPos5;\n"
-        "uniform vec4 u_lightDiffuse5;\n"
-        "uniform vec4 u_lightAtten5;\n"
-        "uniform vec4 u_lightPos6;\n"
-        "uniform vec4 u_lightDiffuse6;\n"
-        "uniform vec4 u_lightAtten6;\n"
         "\n"
         "uniform float u_skyHorizonBlend;\n"
         "\n"
@@ -97,26 +83,29 @@ namespace Vita
         "    }\n"
         "\n"
         "    float NdotL = max(dot(viewNormal, u_sunDirView), 0.0);\n"
+        // Floor on ambient so dark caves stay navigable even with the 2-light cap.
+        "    vec3 effAmbient = max(u_ambient * 1.4, vec3(0.22));\n"
         "    vec3 lighting = emission\n"
-        "                  + u_ambient * matAmbient.rgb\n"
+        "                  + effAmbient * matAmbient.rgb\n"
         "                  + u_sunColor * matDiffuse.rgb * NdotL;\n"
         "\n"
         "    lighting += calcPointLight(viewPos, u_lightPos0, u_lightDiffuse0, u_lightAtten0, viewNormal, matDiffuse.rgb);\n"
         "    lighting += calcPointLight(viewPos, u_lightPos1, u_lightDiffuse1, u_lightAtten1, viewNormal, matDiffuse.rgb);\n"
-        "    lighting += calcPointLight(viewPos, u_lightPos2, u_lightDiffuse2, u_lightAtten2, viewNormal, matDiffuse.rgb);\n"
-        "    lighting += calcPointLight(viewPos, u_lightPos3, u_lightDiffuse3, u_lightAtten3, viewNormal, matDiffuse.rgb);\n"
-        "    lighting += calcPointLight(viewPos, u_lightPos4, u_lightDiffuse4, u_lightAtten4, viewNormal, matDiffuse.rgb);\n"
-        "    lighting += calcPointLight(viewPos, u_lightPos5, u_lightDiffuse5, u_lightAtten5, viewNormal, matDiffuse.rgb);\n"
-        "    lighting += calcPointLight(viewPos, u_lightPos6, u_lightDiffuse6, u_lightAtten6, viewNormal, matDiffuse.rgb);\n"
         "\n"
         "    v_color = vec4(min(lighting, vec3(1.0)), matDiffuse.a);\n"
         "    v_texCoord = osg_MultiTexCoord0;\n"
         "\n"
-        "    float dist = length(viewPos);\n"
+        // View-space z for fog: skips the sqrt of length(viewPos).
+        "    float dist = -viewPos.z;\n"
         "    float t = clamp(max(0.0, dist - u_fogStart) / max(u_fogEnd - u_fogStart, 1.0), 0.0, 1.0);\n"
         "    v_fogFactor = 1.0 - smoothstep(0.0, 1.0, t);\n"
-        "    float alt = normalize(osg_Vertex.xyz + vec3(0.0, 0.0, 0.001)).z;\n"
-        "    v_skyHorizon = clamp(1.0 - alt * 3.0, 0.0, 1.0) * u_skyHorizonBlend;\n"
+        // Gate expensive horizon math to sky only.
+        "    if (u_skyHorizonBlend > 0.0) {\n"
+        "        float alt = normalize(osg_Vertex.xyz + vec3(0.0, 0.0, 0.001)).z;\n"
+        "        v_skyHorizon = clamp(1.0 - alt * 3.0, 0.0, 1.0);\n"
+        "    } else {\n"
+        "        v_skyHorizon = 0.0;\n"
+        "    }\n"
         "}\n";
 
     static const char* s_litFragSource =
@@ -193,8 +182,10 @@ namespace Vita
         "    }\n"
         "\n"
         "    float NdotL = max(dot(viewNormal, u_sunDirView), 0.0);\n"
+        // Floor on ambient so dark caves stay navigable even with the 2-light cap.
+        "    vec3 effAmbient = max(u_ambient * 1.4, vec3(0.22));\n"
         "    vec3 lighting = emission\n"
-        "                  + u_ambient * matAmbient.rgb\n"
+        "                  + effAmbient * matAmbient.rgb\n"
         "                  + u_sunColor * matDiffuse.rgb * NdotL;\n"
         "\n"
         "    v_color = vec4(min(lighting, vec3(1.0)), matDiffuse.a);\n"
@@ -376,8 +367,8 @@ namespace Vita
         ss->addUniform(new osg::Uniform("u_materialAmbient", osg::Vec4f(1, 1, 1, 1)));
         ss->addUniform(new osg::Uniform("u_materialEmission", osg::Vec4f(0, 0, 0, 1)));
 
-        // Default point light uniforms (zero diffuse = no contribution)
-        for (int i = 0; i < 7; ++i)
+        // Default light uniforms — slot count matches the shader.
+        for (int i = 0; i < 2; ++i)
         {
             std::string idx = std::to_string(i);
             ss->addUniform(new osg::Uniform(("u_lightPos" + idx).c_str(), osg::Vec4f(0, 0, 0, 0)));

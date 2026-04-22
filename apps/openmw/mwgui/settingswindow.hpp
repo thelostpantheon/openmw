@@ -101,6 +101,13 @@ namespace MWGui
         void onWindowModeChanged(MyGUI::ComboBox* sender, size_t pos);
         void onVSyncModeChanged(MyGUI::ComboBox* sender, size_t pos);
 
+#ifdef __vita__
+        // Hide view-distance slider row while dynamic fog drives it.
+        void updateVitaViewDistVisibility();
+        // Hide controls that can't work or cause issues on Vita.
+        void hideIrrelevantVitaWidgets();
+#endif
+
         void onRebindAction(MyGUI::Widget* sender);
         void onInputTabMouseWheel(MyGUI::Widget* sender, int rel);
         void onResetDefaultBindings(MyGUI::Widget* sender);

@@ -807,11 +807,11 @@
                     </Widget>
                 </Widget>
                 <!-- View Distance -->
-                <Widget type="Widget" position="4 30 352 32" align="Left Top HStretch">
+                <Widget type="Widget" position="4 30 352 32" align="Left Top HStretch" name="VitaViewDistRow">
                     <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaViewDistText">
                         <Property key="Caption" value="View Distance"/>
                     </Widget>
-                    <Widget type="ScrollBar" skin="MW_HScroll" position="0 16 352 14" align="Left Top HStretch">
+                    <Widget type="ScrollBar" skin="MW_HScroll" position="0 16 352 14" align="Left Top HStretch" name="VitaViewDistSlider">
                         <Property key="Range" value="4501"/>
                         <Property key="Page" value="100"/>
                         <UserString key="SettingType" value="Slider"/>

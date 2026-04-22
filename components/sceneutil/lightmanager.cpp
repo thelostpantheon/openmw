@@ -447,22 +447,11 @@ namespace SceneUtil
             osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
 
 #ifdef __vita__
-            // Vita: skip FFPLightStateAttribute, GL_LIGHT modes, and dummy attributes entirely.
-            // Our VitaLit shader reads light data from uniforms only.
-            // FFPLightStateAttribute::apply() early-returns, glEnable(GL_LIGHTn) is no-op'd.
-            static const char* posNames[] = {
-                "u_lightPos0", "u_lightPos1", "u_lightPos2", "u_lightPos3",
-                "u_lightPos4", "u_lightPos5", "u_lightPos6"
-            };
-            static const char* diffNames[] = {
-                "u_lightDiffuse0", "u_lightDiffuse1", "u_lightDiffuse2", "u_lightDiffuse3",
-                "u_lightDiffuse4", "u_lightDiffuse5", "u_lightDiffuse6"
-            };
-            static const char* attenNames[] = {
-                "u_lightAtten0", "u_lightAtten1", "u_lightAtten2", "u_lightAtten3",
-                "u_lightAtten4", "u_lightAtten5", "u_lightAtten6"
-            };
-            for (size_t i = 0; i < 7; ++i)
+            // VitaLit reads lights from uniforms; slot count matches the shader.
+            static const char* posNames[] = { "u_lightPos0", "u_lightPos1" };
+            static const char* diffNames[] = { "u_lightDiffuse0", "u_lightDiffuse1" };
+            static const char* attenNames[] = { "u_lightAtten0", "u_lightAtten1" };
+            for (size_t i = 0; i < 2; ++i)
             {
                 if (i < lightList.size())
                 {

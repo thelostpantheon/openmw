@@ -14,6 +14,7 @@
 #include "../mwrender/vismask.hpp"
 #include <components/esm3/loadstat.hpp>
 #include <components/vita/VitaShader.h>
+#include <components/vita/CellCullCallback.h>
 #define VITA_CRUMB(msg) Vita::breadcrumb(msg)
 
 // Count drawables and total triangles in a scene graph subtree
@@ -696,8 +697,14 @@ namespace MWWorld
             optimizer.optimize(cellRoot,
                 SceneUtil::Optimizer::FLATTEN_STATIC_TRANSFORMS
                     | SceneUtil::Optimizer::REMOVE_REDUNDANT_NODES
+                    | SceneUtil::Optimizer::SHARE_DUPLICATE_STATE
                     | SceneUtil::Optimizer::MERGE_GEOMETRY
-                    | SceneUtil::Optimizer::SHARE_DUPLICATE_STATE);
+                    | SceneUtil::Optimizer::VERTEX_POSTTRANSFORM);
+
+            // Replace OSG's loose bounding-sphere cull with a tight AABB.
+            osg::BoundingBox cellAABB = Vita::computeCellAABB(cellRoot);
+            if (cellAABB.valid())
+                cellRoot->addCullCallback(new Vita::CellCullCallback(cellAABB));
         }
 
         // Submit batched cell to ICO for GL compilation during loading screen
@@ -2053,6 +2060,22 @@ namespace MWWorld
 
         mLastPlayerPos = playerPos;
 
+#ifdef __vita__
+        {
+            // EMA-smoothed direction keeps winding paths from flipping preload priorities.
+            osg::Vec3f vel = moved / std::max(dt, 1e-4f);
+            vel.z() = 0.0f;
+            const float speed = vel.length();
+            osg::Vec3f instDir(0.0f, 0.0f, 0.0f);
+            if (speed > 1.0f)
+                instDir = vel / speed;
+            const float tau = 1.0f;
+            const float a = 1.0f - std::exp(-std::min(dt, 0.25f) / tau);
+            mSmoothedMoveDir = mSmoothedMoveDir * (1.0f - a) + instDir * a;
+            mPreloader->setPlayerContext(playerPos, mSmoothedMoveDir);
+        }
+#endif
+
         if (mPreloadEnabled)
         {
             if (mPreloadDoors)
@@ -2118,6 +2141,17 @@ namespace MWWorld
 
         int cellSize = ESM::getCellSize(extWorldspace);
 
+#ifdef __vita__
+        // Sort by distance to predictedPos so the direction-of-travel neighbour lands first in the single-thread queue.
+        struct Candidate
+        {
+            ESM::ExteriorCellLocation idx;
+            float priority;
+        };
+        std::vector<Candidate> candidates;
+        candidates.reserve(static_cast<std::size_t>(halfGridSizePlusOne) * 8u + 4u);
+#endif
+
         for (int dx = -halfGridSizePlusOne; dx <= halfGridSizePlusOne; ++dx)
         {
             for (int dy = -halfGridSizePlusOne; dy <= halfGridSizePlusOne; ++dy)
@@ -2128,17 +2162,45 @@ namespace MWWorld
                 ESM::ExteriorCellLocation cellIndex(cellX + dx, cellY + dy, extWorldspace);
                 const osg::Vec2f thisCellCenter = ESM::indexToPosition(cellIndex, true);
 
-                float dist = std::max(
+                float distPlayer = std::max(
                     std::abs(thisCellCenter.x() - playerPos.x()), std::abs(thisCellCenter.y() - playerPos.y()));
-                dist = std::min(dist,
-                    std::max(std::abs(thisCellCenter.x() - predictedPos.x()),
-                        std::abs(thisCellCenter.y() - predictedPos.y())));
+                float distPred = std::max(std::abs(thisCellCenter.x() - predictedPos.x()),
+                    std::abs(thisCellCenter.y() - predictedPos.y()));
+                float dist = std::min(distPlayer, distPred);
                 float loadDist = cellSize / 2 + cellSize - mCellLoadingThreshold + mPreloadDistance;
 
                 if (dist < loadDist)
+                {
+#ifdef __vita__
+                    candidates.push_back({ cellIndex, distPred });
+#else
                     preloadCell(mWorld.getWorldModel().getExterior(cellIndex));
+#endif
+                }
             }
         }
+
+#ifdef __vita__
+        std::sort(candidates.begin(), candidates.end(),
+            [](const Candidate& a, const Candidate& b) { return a.priority < b.priority; });
+
+        // Urgent eviction only when direction is stable and the boundary is imminent.
+        bool topUrgent = false;
+        if (!candidates.empty() && mSmoothedMoveDir.length() > 0.5f)
+        {
+            const float currentCenterX = static_cast<float>(cellX * cellSize + cellSize / 2);
+            const float currentCenterY = static_cast<float>(cellY * cellSize + cellSize / 2);
+            const float halfCell = cellSize * 0.5f;
+            const float distToEdgeX = halfCell - std::abs(playerPos.x() - currentCenterX);
+            const float distToEdgeY = halfCell - std::abs(playerPos.y() - currentCenterY);
+            const float distToEdge = std::min(distToEdgeX, distToEdgeY);
+            if (distToEdge < 800.0f)
+                topUrgent = true;
+        }
+
+        for (std::size_t i = 0; i < candidates.size(); ++i)
+            preloadCell(mWorld.getWorldModel().getExterior(candidates[i].idx), topUrgent && i == 0);
+#endif
     }
 
     void Scene::preloadCellWithSurroundings(CellStore& cell)
@@ -2178,9 +2240,9 @@ namespace MWWorld
                 mRendering.getReferenceTime());
     }
 
-    void Scene::preloadCell(CellStore& cell)
+    void Scene::preloadCell(CellStore& cell, bool urgent)
     {
-        mPreloader->preload(cell, mRendering.getReferenceTime());
+        mPreloader->preload(cell, mRendering.getReferenceTime(), urgent);
     }
 
     void Scene::preloadTerrain(const osg::Vec3f& pos, ESM::RefId worldspace, bool sync)

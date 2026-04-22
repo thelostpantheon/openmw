@@ -1338,6 +1338,11 @@ namespace MWMechanics
             Movement& mMovement;
         };
 
+#ifdef __vita__
+        // Gate distant actors so the O(N²) predict loop scales with nearby NPCs only.
+        const osg::Vec3f vitaPlayerPos = player.getRefData().getPosition().asVec3();
+        constexpr float kVitaAvoidDistSq = 2000.f * 2000.f;
+#endif
         std::vector<CacheEntry> cache;
         cache.reserve(mActors.size());
         for (const Actor& actor : mActors)
@@ -1345,6 +1350,14 @@ namespace MWMechanics
             if (actor.isInvalid())
                 continue;
             const MWWorld::Ptr& ptr = actor.getPtr();
+#ifdef __vita__
+            if (ptr != player)
+            {
+                const osg::Vec3f pos = ptr.getRefData().getPosition().asVec3();
+                if ((pos - vitaPlayerPos).length2() > kVitaAvoidDistSq)
+                    continue;
+            }
+#endif
             const MWWorld::Class& cls = ptr.getClass();
             cache.push_back({ ptr, cls.getMaxSpeed(ptr), world->getHalfExtents(ptr), cls.getMovementSettings(ptr) });
         }
@@ -1589,7 +1602,19 @@ namespace MWMechanics
                     }
                     if (aiActive && inProcessingRange)
                     {
-                        if (engageCombatTimerStatus == Misc::TimerStatus::Elapsed)
+#ifdef __vita__
+                        // Skip O(N²) engageCombat for distant actors.
+                        constexpr float kVitaCombatDistSq = 2000.f * 2000.f;
+                        const bool vitaCombatGated = !isPlayer && distSqr > kVitaCombatDistSq;
+                        // Force out-of-range AI path for distant actors so they tick cheap.
+                        constexpr float kVitaAiLodDistSq = 1500.f * 1500.f;
+                        const bool vitaAiLodOutOfRange = distSqr > kVitaAiLodDistSq;
+#else
+                        constexpr bool vitaCombatGated = false;
+                        constexpr bool vitaAiLodOutOfRange = false;
+#endif
+                        if (engageCombatTimerStatus == Misc::TimerStatus::Elapsed
+                            && !vitaCombatGated)
                         {
                             if (!isPlayer)
                                 adjustCommandedActor(actor.getPtr());
@@ -1615,7 +1640,7 @@ namespace MWMechanics
                             CreatureStats& stats = actor.getPtr().getClass().getCreatureStats(actor.getPtr());
                             if (isConscious(actor.getPtr()) && !(luaControls && luaControls->mDisableAI))
                             {
-                                stats.getAiSequence().execute(actor.getPtr(), ctrl, duration);
+                                stats.getAiSequence().execute(actor.getPtr(), ctrl, duration, vitaAiLodOutOfRange);
                                 updateGreetingState(actor.getPtr(), actor, mTimerUpdateHello > 0);
                                 playIdleDialogue(actor.getPtr());
                                 updateMovementSpeed(actor.getPtr());
@@ -1653,6 +1678,10 @@ namespace MWMechanics
 
             // Animation/movement update
             CharacterController* playerCharacter = nullptr;
+#ifdef __vita__
+            static unsigned s_vitaLodFrame = 0;
+            ++s_vitaLodFrame;
+#endif
             for (Actor& actor : mActors)
             {
                 if (actor.isInvalid())
@@ -1706,7 +1735,24 @@ namespace MWMechanics
                     actor.setPositionAdjusted(true);
                 }
 
+#ifdef __vita__
+                // Distant actors run ctrl.update every Nth frame with accumulated dt.
+                constexpr float kLodDist = 1500.f;
+                constexpr unsigned kLodSkipN = 3;
+                const uintptr_t stagger = reinterpret_cast<uintptr_t>(&actor) / 32;
+                if (dist > kLodDist
+                    && ((s_vitaLodFrame + stagger) % kLodSkipN) != 0)
+                {
+                    actor.addAccumulatedDt(duration);
+                }
+                else
+                {
+                    ctrl.update(duration + actor.getAccumulatedDt());
+                    actor.clearAccumulatedDt();
+                }
+#else
                 ctrl.update(duration);
+#endif
 
                 updateVisibility(actor.getPtr(), ctrl);
             }

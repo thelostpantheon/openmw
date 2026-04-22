@@ -399,17 +399,13 @@ namespace Resource
                 image = newImage;
             }
 
-            // Cap world textures at 128px max edge. Cuts VRAM, texture-cache
-            // pressure, and upload bandwidth. Skip UI/fonts/book art so text
-            // and menu icons stay crisp. Skip normal/spec maps defensively
-            // (usually disabled on Vita anyway).
+            // Cap world textures; skip UI/normal/spec; atlases get a higher
+            // cap so individual tiles inside stay usable.
             {
                 std::string_view p = path.value();
                 bool isUI = p.find("menu") != std::string_view::npos
-                    || p.find("Menu") != std::string_view::npos
                     || p.find("cursor") != std::string_view::npos
                     || p.find("font") != std::string_view::npos
-                    || p.find("Font") != std::string_view::npos
                     || p.find("bookart") != std::string_view::npos
                     || p.find("levelup") != std::string_view::npos
                     || p.find("scroll") != std::string_view::npos
@@ -419,12 +415,14 @@ namespace Resource
                     || p.find("_nm.") != std::string_view::npos
                     || p.find("_s.") != std::string_view::npos;
 
-                constexpr int kMaxEdge = 64;
+                bool isAtlas = p.find("/atl/") != std::string_view::npos;
+
+                const int maxEdge = isAtlas ? 512 : 64;
                 if (!isUI && !isNormalSpec && !image->isCompressed()
                     && image->s() > 1 && image->t() > 1)
                 {
                     int s = image->s(), t = image->t();
-                    while ((s > kMaxEdge || t > kMaxEdge) && s > 1 && t > 1)
+                    while ((s > maxEdge || t > maxEdge) && s > 1 && t > 1)
                     {
                         s = std::max(s / 2, 1);
                         t = std::max(t / 2, 1);

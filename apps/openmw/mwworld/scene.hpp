@@ -109,6 +109,10 @@ namespace MWWorld
 
         osg::Vec3f mLastPlayerPos;
 
+#ifdef __vita__
+        osg::Vec3f mSmoothedMoveDir{ 0.0f, 0.0f, 0.0f };
+#endif
+
         std::vector<ESM::RefNum> mPagedRefs;
 
         std::vector<osg::ref_ptr<SceneUtil::WorkItem>> mWorkItems;
@@ -131,7 +135,7 @@ namespace MWWorld
         void preloadFastTravelDestinations(
             const osg::Vec3f& playerPos, std::vector<PositionCellGrid>& exteriorPositions);
         void preloadCellWithSurroundings(MWWorld::CellStore& cell);
-        void preloadCell(MWWorld::CellStore& cell);
+        void preloadCell(MWWorld::CellStore& cell, bool urgent = false);
         void preloadTerrain(const osg::Vec3f& pos, ESM::RefId worldspace, bool sync = false);
 
         osg::Vec4i gridCenterToBounds(const osg::Vec2i& centerCell) const;
