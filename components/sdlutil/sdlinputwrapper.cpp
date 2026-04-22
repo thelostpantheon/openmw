@@ -216,55 +216,104 @@ namespace SDLUtil
 
                 case SDL_FINGERDOWN:
                 case SDL_FINGERUP:
+                case SDL_FINGERMOTION:
 #ifdef __vita__
-                    // Front touchscreen zones act as virtual buttons for inputs
-                    // the Vita lacks (no stick clicks). touchId 1 = front panel.
-                    // Top-left = LEFTSTICK (Toggle POV), Top-right = RIGHTSTICK (QuickSave).
-                    if (mConListener && evt.tfinger.touchId == 1)
+                    if (evt.tfinger.touchId == 1)
                     {
-                        bool isLeft = (evt.tfinger.x < 0.25f && evt.tfinger.y < 0.2f);
-                        bool isRight = (evt.tfinger.x > 0.75f && evt.tfinger.y < 0.2f);
+                        const bool guiMode = mTouchCursorEnabled && mTouchCursorEnabled();
 
-                        if (isLeft)
+                        // Zones only fire in gameplay so top-corner menu items stay clickable.
+                        if (!guiMode && evt.type != SDL_FINGERMOTION && mConListener)
                         {
-                            bool pressed = (evt.type == SDL_FINGERDOWN);
-                            if (pressed != mTouchZoneLeft)
+                            const bool isLeftZone = (evt.tfinger.x < 0.25f && evt.tfinger.y < 0.2f);
+                            const bool isRightZone = (evt.tfinger.x > 0.75f && evt.tfinger.y < 0.2f);
+                            if (isLeftZone || isRightZone)
                             {
-                                mTouchZoneLeft = pressed;
-                                SDL_ControllerButtonEvent btnEvt = {};
-                                btnEvt.type = pressed ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP;
-                                btnEvt.button = SDL_CONTROLLER_BUTTON_LEFTSTICK;
-                                btnEvt.state = pressed ? SDL_PRESSED : SDL_RELEASED;
-                                if (pressed)
-                                    mConListener->buttonPressed(1, btnEvt);
-                                else
-                                    mConListener->buttonReleased(1, btnEvt);
+                                bool pressed = (evt.type == SDL_FINGERDOWN);
+                                bool& state = isLeftZone ? mTouchZoneLeft : mTouchZoneRight;
+                                if (pressed != state)
+                                {
+                                    state = pressed;
+                                    SDL_ControllerButtonEvent btnEvt = {};
+                                    btnEvt.type = pressed ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP;
+                                    btnEvt.button = isLeftZone ? SDL_CONTROLLER_BUTTON_LEFTSTICK
+                                                               : SDL_CONTROLLER_BUTTON_RIGHTSTICK;
+                                    btnEvt.state = pressed ? SDL_PRESSED : SDL_RELEASED;
+                                    if (pressed)
+                                        mConListener->buttonPressed(1, btnEvt);
+                                    else
+                                        mConListener->buttonReleased(1, btnEvt);
+                                }
+                                break;
                             }
                         }
-                        else if (isRight)
+
+                        // GUI mode: touch is absolute cursor position + click/drag.
+                        if (guiMode && mMouseListener)
                         {
-                            bool pressed = (evt.type == SDL_FINGERDOWN);
-                            if (pressed != mTouchZoneRight)
+                            int winW = 0, winH = 0;
+                            SDL_GetWindowSize(mSDLWindow, &winW, &winH);
+                            const Sint32 px = static_cast<Sint32>(evt.tfinger.x * winW);
+                            const Sint32 py = static_cast<Sint32>(evt.tfinger.y * winH);
+
+                            if (evt.type == SDL_FINGERDOWN && !mCursorFingerActive)
                             {
-                                mTouchZoneRight = pressed;
-                                SDL_ControllerButtonEvent btnEvt = {};
-                                btnEvt.type = pressed ? SDL_CONTROLLERBUTTONDOWN : SDL_CONTROLLERBUTTONUP;
-                                btnEvt.button = SDL_CONTROLLER_BUTTON_RIGHTSTICK;
-                                btnEvt.state = pressed ? SDL_PRESSED : SDL_RELEASED;
-                                if (pressed)
-                                    mConListener->buttonPressed(1, btnEvt);
-                                else
-                                    mConListener->buttonReleased(1, btnEvt);
+                                mCursorFingerActive = true;
+                                mCursorFingerId = evt.tfinger.fingerId;
+                                mMouseX = px;
+                                mMouseY = py;
+                                MouseMotionEvent mm = {};
+                                mm.type = SDL_MOUSEMOTION;
+                                mm.which = SDL_TOUCH_MOUSEID;
+                                mm.x = px;
+                                mm.y = py;
+                                mm.state = SDL_BUTTON_LMASK;
+                                mMouseListener->mouseMoved(mm);
+                                SDL_MouseButtonEvent mb = {};
+                                mb.type = SDL_MOUSEBUTTONDOWN;
+                                mb.which = SDL_TOUCH_MOUSEID;
+                                mb.button = SDL_BUTTON_LEFT;
+                                mb.state = SDL_PRESSED;
+                                mb.clicks = 1;
+                                mb.x = px;
+                                mb.y = py;
+                                mMouseListener->mousePressed(mb, SDL_BUTTON_LEFT);
+                            }
+                            else if (evt.type == SDL_FINGERMOTION && mCursorFingerActive
+                                && evt.tfinger.fingerId == mCursorFingerId)
+                            {
+                                MouseMotionEvent mm = {};
+                                mm.type = SDL_MOUSEMOTION;
+                                mm.which = SDL_TOUCH_MOUSEID;
+                                mm.x = px;
+                                mm.y = py;
+                                mm.xrel = px - mMouseX;
+                                mm.yrel = py - mMouseY;
+                                mm.state = SDL_BUTTON_LMASK;
+                                mMouseX = px;
+                                mMouseY = py;
+                                mMouseListener->mouseMoved(mm);
+                            }
+                            else if (evt.type == SDL_FINGERUP && mCursorFingerActive
+                                && evt.tfinger.fingerId == mCursorFingerId)
+                            {
+                                mCursorFingerActive = false;
+                                SDL_MouseButtonEvent mb = {};
+                                mb.type = SDL_MOUSEBUTTONUP;
+                                mb.which = SDL_TOUCH_MOUSEID;
+                                mb.button = SDL_BUTTON_LEFT;
+                                mb.state = SDL_RELEASED;
+                                mb.x = px;
+                                mb.y = py;
+                                mMouseListener->mouseReleased(mb, SDL_BUTTON_LEFT);
                             }
                         }
                     }
                     break;
 #endif
-                case SDL_FINGERMOTION:
                 case SDL_DOLLARGESTURE:
                 case SDL_DOLLARRECORD:
                 case SDL_MULTIGESTURE:
-                    // No use for touch, motion & gesture events
                     break;
 
                 case SDL_APP_WILLENTERBACKGROUND:

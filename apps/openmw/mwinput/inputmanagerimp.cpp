@@ -45,6 +45,11 @@ namespace MWInput
         mInputWrapper->setMouseEventCallback(mMouseManager.get());
         mInputWrapper->setControllerEventCallback(mControllerManager.get());
         mInputWrapper->setSensorEventCallback(mSensorManager.get());
+
+#ifdef __vita__
+        mInputWrapper->setTouchCursorEnabledPredicate(
+            []() { return MWBase::Environment::get().getWindowManager()->isGuiMode(); });
+#endif
     }
 
     void InputManager::clear()
