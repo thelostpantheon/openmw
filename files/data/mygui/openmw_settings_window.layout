@@ -806,8 +806,30 @@
                         <Property key="Caption" value="Dynamic Fog (Auto FPS)"/>
                     </Widget>
                 </Widget>
+                <!-- Dynamic Fog Target FPS: the controller shrinks view distance below target and grows above -->
+                <Widget type="Widget" position="4 30 352 32" align="Left Top HStretch" name="VitaDynFogTargetFpsRow">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top">
+                        <Property key="Caption" value="Dynamic Fog Target FPS"/>
+                    </Widget>
+                    <Widget type="ComboBox" skin="MW_ComboBox" position="0 16 200 24" align="Left Top" name="VitaDynFogTargetFpsList">
+                        <Property key="AddItem" value="15 (Max Distance)"/>
+                        <Property key="AddItem" value="18 (Long Distance)"/>
+                        <Property key="AddItem" value="20 (Balanced)"/>
+                    </Widget>
+                </Widget>
+                <!-- Dynamic Fog Aggression: how hard the controller shrinks fog when fps lags target -->
+                <Widget type="Widget" position="4 66 352 32" align="Left Top HStretch" name="VitaDynFogAggressionRow">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top">
+                        <Property key="Caption" value="Dynamic Fog Aggression"/>
+                    </Widget>
+                    <Widget type="ComboBox" skin="MW_ComboBox" position="0 16 200 24" align="Left Top" name="VitaDynFogAggressionList">
+                        <Property key="AddItem" value="Normal"/>
+                        <Property key="AddItem" value="Aggressive"/>
+                        <Property key="AddItem" value="Very Aggressive"/>
+                    </Widget>
+                </Widget>
                 <!-- View Distance -->
-                <Widget type="Widget" position="4 30 352 32" align="Left Top HStretch" name="VitaViewDistRow">
+                <Widget type="Widget" position="4 102 352 32" align="Left Top HStretch" name="VitaViewDistRow">
                     <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaViewDistText">
                         <Property key="Caption" value="View Distance"/>
                     </Widget>
@@ -825,7 +847,7 @@
                     </Widget>
                 </Widget>
                 <!-- Field of View -->
-                <Widget type="Widget" position="4 66 352 32" align="Left Top HStretch">
+                <Widget type="Widget" position="4 138 352 32" align="Left Top HStretch">
                     <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaFovText">
                         <Property key="Caption" value="Field of View"/>
                     </Widget>
@@ -843,7 +865,7 @@
                     </Widget>
                 </Widget>
                 <!-- Font Size -->
-                <Widget type="Widget" position="4 102 352 32" align="Left Top HStretch">
+                <Widget type="Widget" position="4 174 352 32" align="Left Top HStretch">
                     <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaFontText">
                         <Property key="Caption" value="Font Size"/>
                     </Widget>

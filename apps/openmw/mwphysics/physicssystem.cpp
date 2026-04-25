@@ -116,6 +116,7 @@ namespace MWPhysics
         cci.m_defaultMaxPersistentManifoldPoolSize = 512;
         cci.m_defaultMaxCollisionAlgorithmPoolSize = 512;
         mCollisionConfiguration = std::make_unique<btDefaultCollisionConfiguration>(cci);
+        gDbvtMargin = btScalar(0.2);
 #else
         mCollisionConfiguration = std::make_unique<btDefaultCollisionConfiguration>();
 #endif

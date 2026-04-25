@@ -763,10 +763,10 @@ namespace Vita
     {
         debugLog("Applying Vita platform defaults...");
 
-        // --- Video: render at 576x320 (both /32 aligned), hardware scaler
-        // upscales to 960x544. ~35% pixel count, balances quality and perf.
-        Settings::video().mResolutionX.set(576);
-        Settings::video().mResolutionY.set(320);
+        // --- Video: render at 512x288 (both /32 aligned), hardware scaler
+        // upscales to 960x544.
+        Settings::video().mResolutionX.set(512);
+        Settings::video().mResolutionY.set(288);
         Settings::video().mAntialiasing.set(0);
         Settings::video().mFramerateLimit.set(30.0f);
 

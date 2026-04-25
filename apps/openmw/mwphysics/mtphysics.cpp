@@ -403,8 +403,16 @@ namespace MWPhysics
             std::unique_lock lock(mHasJobMutex);
             while (!mShouldStop)
             {
-                mHasJob.wait(lock, [&] { return mShouldStop || mFrameCounter.load(std::memory_order_acquire) != lastFrame; });
+#ifdef __vita__
+                mHasJob.wait(lock, [&] {
+                    return mShouldStop
+                        || mFrameCounter.load(std::memory_order_acquire) != lastFrame;
+                });
                 lastFrame = mFrameCounter.load(std::memory_order_acquire);
+#else
+                mHasJob.wait(lock, [&] { return mShouldStop || mFrameCounter != lastFrame; });
+                lastFrame = mFrameCounter;
+#endif
                 lock.unlock();
 #ifdef __vita__
                 try { f(); }

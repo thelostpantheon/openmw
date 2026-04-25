@@ -106,6 +106,12 @@ namespace MWGui
         void updateVitaViewDistVisibility();
         // Hide controls that can't work or cause issues on Vita.
         void hideIrrelevantVitaWidgets();
+        // Target-fps dropdown (3 discrete options: 15/18/20)
+        MyGUI::ComboBox* mVitaDynFogTargetFpsList = nullptr;
+        void onVitaDynFogTargetFpsChanged(MyGUI::ComboBox* sender, size_t pos);
+        // Fog aggression dropdown (Normal/Aggressive/Very Aggressive)
+        MyGUI::ComboBox* mVitaDynFogAggressionList = nullptr;
+        void onVitaDynFogAggressionChanged(MyGUI::ComboBox* sender, size_t pos);
 #endif
 
         void onRebindAction(MyGUI::Widget* sender);

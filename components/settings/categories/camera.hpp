@@ -28,6 +28,10 @@ namespace Settings
             makeClampSanitizerFloat(1, 179) };
         SettingValue<bool> mReverseZ{ mIndex, "Camera", "reverse z" };
         SettingValue<bool> mVitaDynamicFog{ mIndex, "Camera", "vita dynamic fog" };
+        SettingValue<float> mVitaDynFogTargetFps{ mIndex, "Camera", "vita dyn fog target fps",
+            makeClampSanitizerFloat(15.f, 20.f) };
+        // controls how hard the proportional shrink response pulls fog in when fps is below target.
+        SettingValue<std::string> mVitaDynFogAggression{ mIndex, "Camera", "vita dyn fog aggression" };
     };
 }
 

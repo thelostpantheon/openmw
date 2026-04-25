@@ -111,6 +111,7 @@ namespace Vita
     static const char* s_litFragSource =
         "uniform sampler2D diffuseMap;\n"
         "uniform vec4 u_fogColor;\n"
+        "uniform vec3 u_ambient;\n"
         "uniform float alphaRef;\n"
         "\n"
         "varying vec2 v_texCoord;\n"
@@ -122,9 +123,12 @@ namespace Vita
         "    vec4 tex = texture2D(diffuseMap, v_texCoord);\n"
         "    vec4 color = vec4(tex.rgb * v_color.rgb, tex.a * v_color.a);\n"
         "    if (color.a < alphaRef) discard;\n"
-        "    vec4 outColor = mix(u_fogColor, color, v_fogFactor);\n"
-        "    outColor.rgb = mix(outColor.rgb, u_fogColor.rgb, v_skyHorizon);\n"
-        "    gl_FragColor = outColor;\n"
+        "    float fogLum = max(u_fogColor.r, max(u_fogColor.g, u_fogColor.b));\n"
+        "    float fogGreyMix = 1.0 - smoothstep(0.05, 0.20, fogLum);\n"
+        "    vec3 fogRGB = mix(u_fogColor.rgb, vec3(0.08), fogGreyMix);\n"
+        "    vec3 fogged = mix(fogRGB, color.rgb, v_fogFactor);\n"
+        "    fogged = mix(fogged, fogRGB, v_skyHorizon);\n"
+        "    gl_FragColor = vec4(fogged, color.a);\n"
         "}\n";
 
     //VitaTerrain Shaders
@@ -202,6 +206,7 @@ namespace Vita
         "uniform sampler2D blendMap;\n"
         "uniform int u_hasBlendMap;\n"
         "uniform vec4 u_fogColor;\n"
+        "uniform vec3 u_ambient;\n"
         "\n"
         "varying vec2 v_texCoord;\n"
         "varying vec2 v_texCoord2;\n"
@@ -214,7 +219,10 @@ namespace Vita
         "    if (u_hasBlendMap != 0)\n"
         "        alpha = texture2D(blendMap, v_texCoord2).a;\n"
         "    vec4 color = vec4(tex.rgb * v_color.rgb, alpha);\n"
-        "    gl_FragColor = mix(u_fogColor, color, v_fogFactor);\n"
+        "    float fogLum = max(u_fogColor.r, max(u_fogColor.g, u_fogColor.b));\n"
+        "    float fogGreyMix = 1.0 - smoothstep(0.05, 0.20, fogLum);\n"
+        "    vec3 fogRGB = mix(u_fogColor.rgb, vec3(0.08), fogGreyMix);\n"
+        "    gl_FragColor = mix(vec4(fogRGB, u_fogColor.a), color, v_fogFactor);\n"
         "}\n";
 
     // VitaTerrainMulti Shaders
@@ -232,6 +240,7 @@ namespace Vita
         "uniform sampler2D u_blend3;\n"
         "uniform int u_numLayers;\n"
         "uniform vec4 u_fogColor;\n"
+        "uniform vec3 u_ambient;\n"
         "\n"
         "varying vec2 v_texCoord;\n"
         "varying vec2 v_texCoord2;\n"
@@ -253,7 +262,11 @@ namespace Vita
         "        color = mix(color, texture2D(u_layer3, v_texCoord).rgb, b3);\n"
         "    }\n"
         "    color *= v_color.rgb;\n"
-        "    gl_FragColor = mix(u_fogColor, vec4(color, 1.0), v_fogFactor);\n"
+
+        "    float fogLum = max(u_fogColor.r, max(u_fogColor.g, u_fogColor.b));\n"
+        "    float fogGreyMix = 1.0 - smoothstep(0.05, 0.20, fogLum);\n"
+        "    vec3 fogRGB = mix(u_fogColor.rgb, vec3(0.08), fogGreyMix);\n"
+        "    gl_FragColor = mix(vec4(fogRGB, u_fogColor.a), vec4(color, 1.0), v_fogFactor);\n"
         "}\n";
 
     // ==================== Program Creation ====================
@@ -389,18 +402,52 @@ namespace Vita
     void updateSceneUniforms(osg::StateSet* ss, const osg::Vec3f& sunDirView, const osg::Vec3f& sunColor,
         const osg::Vec3f& ambient, float fogStart, float fogEnd, const osg::Vec4f& fogColor)
     {
+        // u_sunDirView changes every frame the camera rotates — always update.
         if (osg::Uniform* u = ss->getUniform("u_sunDirView"))
             u->set(sunDirView);
-        if (osg::Uniform* u = ss->getUniform("u_sunColor"))
-            u->set(sunColor);
-        if (osg::Uniform* u = ss->getUniform("u_ambient"))
-            u->set(ambient);
-        if (osg::Uniform* u = ss->getUniform("u_fogStart"))
-            u->set(fogStart);
-        if (osg::Uniform* u = ss->getUniform("u_fogEnd"))
-            u->set(fogEnd);
-        if (osg::Uniform* u = ss->getUniform("u_fogColor"))
-            u->set(fogColor);
+
+        // The remaining scene uniforms only change at sub-Hz rates (weather
+        // transitions, fog controller ticks). Cache last-set values and skip
+        // unchanged writes — saves several Uniform::set passes per frame
+        // through the OSG → vitaGL → SceGxm path. Function is called from
+        // a single StateSet (mSceneRoot) on the main thread, so static cache
+        // is safe.
+        static osg::Vec3f s_sunColor(-1.f, -1.f, -1.f);
+        static osg::Vec3f s_ambient(-1.f, -1.f, -1.f);
+        static float s_fogStart = -1.f;
+        static float s_fogEnd = -1.f;
+        static osg::Vec4f s_fogColor(-1.f, -1.f, -1.f, -1.f);
+
+        if (sunColor != s_sunColor)
+        {
+            if (osg::Uniform* u = ss->getUniform("u_sunColor"))
+                u->set(sunColor);
+            s_sunColor = sunColor;
+        }
+        if (ambient != s_ambient)
+        {
+            if (osg::Uniform* u = ss->getUniform("u_ambient"))
+                u->set(ambient);
+            s_ambient = ambient;
+        }
+        if (fogStart != s_fogStart)
+        {
+            if (osg::Uniform* u = ss->getUniform("u_fogStart"))
+                u->set(fogStart);
+            s_fogStart = fogStart;
+        }
+        if (fogEnd != s_fogEnd)
+        {
+            if (osg::Uniform* u = ss->getUniform("u_fogEnd"))
+                u->set(fogEnd);
+            s_fogEnd = fogEnd;
+        }
+        if (fogColor != s_fogColor)
+        {
+            if (osg::Uniform* u = ss->getUniform("u_fogColor"))
+                u->set(fogColor);
+            s_fogColor = fogColor;
+        }
     }
 
 } // namespace Vita

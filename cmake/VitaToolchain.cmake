@@ -15,13 +15,13 @@ include("$ENV{VITASDK}/share/vita.toolchain.cmake")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -mcpu=cortex-a9 -mfpu=neon" CACHE STRING "" FORCE)
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=cortex-a9 -mfpu=neon" CACHE STRING "" FORCE)
 
-# Use -Os for release configurations (size matters on Vita) with safe optimizations.
+# Use -O2 for release on Vita: GCC -Os was leaving real perf on the table in
 # NOTE: Do NOT use -flto — causes undefined reference errors for OSG vtable/typeinfo
 # symbols at link time (GCC 10 LTO slim objects in OSG .a libs are incompatible).
 # NOTE: Do NOT use -ffast-math — generates VFPv4 fused multiply-add (vfma) instructions
 # that don't exist on the Vita's Cortex-A9 (VFPv3 only). Crashes in osg::asciiToDouble.
-set(CMAKE_CXX_FLAGS_RELEASE "-Os -DNDEBUG -ftree-vectorize -funroll-loops -fomit-frame-pointer" CACHE STRING "c++ Release flags" FORCE)
-set(CMAKE_C_FLAGS_RELEASE "-Os -DNDEBUG -ftree-vectorize -funroll-loops -fomit-frame-pointer" CACHE STRING "c Release flags" FORCE)
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG -ftree-vectorize -funroll-loops -fomit-frame-pointer -fno-stack-protector -fipa-icf" CACHE STRING "c++ Release flags" FORCE)
+set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG -ftree-vectorize -funroll-loops -fomit-frame-pointer -fno-stack-protector -fipa-icf" CACHE STRING "c Release flags" FORCE)
 
 # All-static Vita builds have circular deps between libs (vitaGL ↔ SceGxm,
 # freetype ↔ bz2, avformat ↔ avcodec, etc.). Wrap link with --start/end-group

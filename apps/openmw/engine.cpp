@@ -1162,9 +1162,9 @@ void OMW::Engine::go()
     const std::chrono::steady_clock::duration maxSimulationInterval(std::chrono::milliseconds(200));
 #ifdef __vita__
     constexpr float kDynFogMin = 1500.f;
+    constexpr float kDynFogMinInterior = 700.f;
     constexpr float kDynFogMax = 5000.f;
     constexpr float kDynFogUserMoveThreshold = 300.f;
-    constexpr float kDynFogTargetFps = 20.f;
     constexpr float kDynFogDeadband = 0.5f;
     constexpr float kDynFogEmaAlpha = 0.15f;
     constexpr float kDynFogLerpHz = 4.0f;
@@ -1172,8 +1172,11 @@ void OMW::Engine::go()
     float vitaDynFogTarget = Settings::camera().mViewingDistance;
     float vitaDynFogLastWritten = Settings::camera().mViewingDistance;
     bool vitaDynFogWasOn = false;
-    float vitaDynFogEmaDt = 1.0f / kDynFogTargetFps;
+    // Seed EMA with the configured target period so the first tick isn't biased.
+    float vitaDynFogEmaDt = 1.0f / std::max(15.f, Settings::camera().mVitaDynFogTargetFps.get());
     auto vitaDynFogLastAdjust = std::chrono::steady_clock::now();
+    bool vitaDynFogWasRunning = false;
+    bool vitaDynFogWasInInterior = false;
 #endif
     while (!mViewer->done() && !mStateManager->hasQuitRequest())
     {
@@ -1223,12 +1226,48 @@ void OMW::Engine::go()
                     + kDynFogEmaAlpha * static_cast<float>(frameDt);
 
             bool dynFogOn = Settings::camera().mVitaDynamicFog;
-            if (dynFogOn && !vitaDynFogWasOn)
+            const float dynFogTargetFps
+                = std::max(15.f, Settings::camera().mVitaDynFogTargetFps.get());
+            auto pickFloor = [&]() -> std::pair<float, float> {
+                struct Tier { float fps, ext, intr; };
+                static constexpr Tier kTable[] = {
+                    { 15.f, 2000.f, 1000.f },
+                    { 18.f, 1700.f,  850.f },
+                    { 20.f, 1500.f,  700.f },
+                };
+                const Tier* pick = &kTable[2]; // default "20 (Balanced)"
+                float best = std::abs(dynFogTargetFps - kTable[2].fps);
+                for (const Tier& t : kTable)
+                {
+                    float d = std::abs(dynFogTargetFps - t.fps);
+                    if (d < best) { best = d; pick = &t; }
+                }
+                return { pick->ext, pick->intr };
+            };
+            const auto [floorExt, floorInt] = pickFloor();
+            const bool isRunning = (mStateManager->getState() == MWBase::StateManager::State_Running);
+            bool isInInterior = false;
+            float effectiveMin = floorExt;
+            if (isRunning)
             {
-                // Start tight and grow with fps headroom instead of shrinking under load.
-                vitaDynFogTarget = kDynFogMin;
-                vitaDynFogLastWritten = kDynFogMin;
-                Settings::camera().mViewingDistance.set(kDynFogMin);
+                MWWorld::Ptr player = mWorld->getPlayerPtr();
+                MWWorld::CellStore* cell = player.getCell();
+                if (cell && !cell->isExterior())
+                {
+                    isInInterior = true;
+                    effectiveMin = floorInt;
+                }
+            }
+
+            // Snap fog to the floor so it always *grows* from tight toward the
+            const bool dynFogJustEnabled = dynFogOn && !vitaDynFogWasOn;
+            const bool justLoadedGame = dynFogOn && isRunning && !vitaDynFogWasRunning;
+            const bool enteredInterior = dynFogOn && isInInterior && !vitaDynFogWasInInterior;
+            if (dynFogJustEnabled || justLoadedGame || enteredInterior)
+            {
+                vitaDynFogTarget = effectiveMin;
+                vitaDynFogLastWritten = effectiveMin;
+                Settings::camera().mViewingDistance.set(effectiveMin);
                 static const Settings::CategorySettingVector kFilter{ { "Camera", "viewing distance" } };
                 const auto changes = Settings::Manager::getPendingChanges(kFilter);
                 if (!changes.empty())
@@ -1239,6 +1278,8 @@ void OMW::Engine::go()
                 vitaDynFogLastAdjust = std::chrono::steady_clock::now();
             }
             vitaDynFogWasOn = dynFogOn;
+            vitaDynFogWasRunning = isRunning;
+            vitaDynFogWasInInterior = isInInterior;
 
             if (dynFogOn)
             {
@@ -1251,24 +1292,50 @@ void OMW::Engine::go()
                 }
                 else
                 {
+                    // Resolve aggression profile each tick (cheap, allows live UI changes)
+                    const std::string& aggStr = Settings::camera().mVitaDynFogAggression.get();
+                    float shrinkCoef = 50.f, shrinkMaxAbs = 500.f, shrinkLerpHz = 6.f; // aggressive default
+                    if (aggStr == "normal")
+                    {
+                        shrinkCoef = 30.f; shrinkMaxAbs = 300.f; shrinkLerpHz = 4.f;
+                    }
+                    else if (aggStr == "very aggressive")
+                    {
+                        shrinkCoef = 80.f; shrinkMaxAbs = 800.f; shrinkLerpHz = 8.f;
+                    }
+
                     auto now = std::chrono::steady_clock::now();
                     if (now - vitaDynFogLastAdjust >= kDynFogAdjustInterval)
                     {
                         vitaDynFogLastAdjust = now;
                         float fps = 1.0f / vitaDynFogEmaDt;
-                        float fpsGap = fps - kDynFogTargetFps;
+                        float fpsGap = fps - dynFogTargetFps;
                         float step = 0.f;
                         if (fpsGap < -kDynFogDeadband)
-                            step = std::clamp(fpsGap * 25.f, -300.f, -20.f);
+                        {
+                            // Two-tier shrink: catastrophic snap is fixed (always
+                            // saves you), proportional response scales with the
+                            // aggression setting.
+                            if (fps <= 13.f)
+                                step = -2000.f;
+                            else
+                                step = std::clamp(fpsGap * shrinkCoef, -shrinkMaxAbs, -20.f);
+                        }
                         else if (fpsGap > kDynFogDeadband)
                             step = std::clamp(fpsGap * 20.f, 20.f, 150.f);
                         vitaDynFogTarget
-                            = std::clamp(vitaDynFogTarget + step, kDynFogMin, kDynFogMax);
+                            = std::clamp(vitaDynFogTarget + step, effectiveMin, kDynFogMax);
                     }
 
-                    float lerpT
-                        = 1.0f - std::exp(-kDynFogLerpHz * static_cast<float>(frameDt));
-                    float newDist = current + (vitaDynFogTarget - current) * lerpT;
+
+                    const float targetDelta = vitaDynFogTarget - current;
+                    float lerpHz = kDynFogLerpHz;
+                    if (targetDelta < -1200.f)
+                        lerpHz = 16.f;
+                    else if (targetDelta < 0.f && targetDelta > -1200.f)
+                        lerpHz = shrinkLerpHz; // proportional shrink uses aggression-tuned rate
+                    float lerpT = 1.0f - std::exp(-lerpHz * static_cast<float>(frameDt));
+                    float newDist = current + targetDelta * lerpT;
                     if (std::abs(newDist - current) > 0.5f)
                     {
                         Settings::camera().mViewingDistance.set(newDist);

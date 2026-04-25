@@ -264,6 +264,40 @@ namespace MWGui
 #ifdef __vita__
         hideIrrelevantVitaWidgets();
         updateVitaViewDistVisibility();
+
+        // Target-fps dropdown: pick current index from setting, wire change handler.
+        try
+        {
+            getWidget(mVitaDynFogTargetFpsList, "VitaDynFogTargetFpsList");
+            if (mVitaDynFogTargetFpsList)
+            {
+                const float current = Settings::camera().mVitaDynFogTargetFps.get();
+                size_t idx = 2; // default to "20"
+                if (current < 16.5f)      idx = 0;  // 15
+                else if (current < 19.f)  idx = 1;  // 18
+                else                      idx = 2;  // 20
+                mVitaDynFogTargetFpsList->setIndexSelected(idx);
+                mVitaDynFogTargetFpsList->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onVitaDynFogTargetFpsChanged);
+            }
+
+            // Fog aggression dropdown: pick current index from setting string
+            getWidget(mVitaDynFogAggressionList, "VitaDynFogAggressionList");
+            if (mVitaDynFogAggressionList)
+            {
+                const std::string& current = Settings::camera().mVitaDynFogAggression.get();
+                size_t idx = 1; // default to "Aggressive"
+                if (current == "normal")               idx = 0;
+                else if (current == "very aggressive") idx = 2;
+                else                                   idx = 1;
+                mVitaDynFogAggressionList->setIndexSelected(idx);
+                mVitaDynFogAggressionList->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onVitaDynFogAggressionChanged);
+            }
+        }
+        catch (...)
+        {
+        }
 #endif
 
         setTitle("#{OMWEngine:SettingsWindow}");
@@ -708,6 +742,28 @@ namespace MWGui
         }
     }
 
+#ifdef __vita__
+    void SettingsWindow::onVitaDynFogTargetFpsChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        // Indices aligned with layout AddItem order.
+        static constexpr float kValues[] = { 15.f, 18.f, 20.f };
+        if (pos >= std::size(kValues))
+            return;
+        Settings::camera().mVitaDynFogTargetFps.set(kValues[pos]);
+        apply();
+    }
+
+    void SettingsWindow::onVitaDynFogAggressionChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        // Indices aligned with layout AddItem order.
+        static const char* kValues[] = { "normal", "aggressive", "very aggressive" };
+        if (pos >= std::size(kValues))
+            return;
+        Settings::camera().mVitaDynFogAggression.set(kValues[pos]);
+        apply();
+    }
+#endif
+
     void SettingsWindow::onTextureFilteringChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
     {
         auto& generalSettings = Settings::general();
@@ -1105,10 +1161,14 @@ namespace MWGui
 
     void SettingsWindow::updateVitaViewDistVisibility()
     {
-        const bool visible = !Settings::camera().mVitaDynamicFog.get();
-        setVitaWidgetVisible(*this, "VitaViewDistRow", visible);
-        setVitaWidgetVisible(*this, "VitaViewDistText", visible);
-        setVitaWidgetVisible(*this, "VitaViewDistSlider", visible);
+        const bool dynFogOn = Settings::camera().mVitaDynamicFog.get();
+        // View-distance slider is meaningful only when dynamic fog is OFF.
+        setVitaWidgetVisible(*this, "VitaViewDistRow", !dynFogOn);
+        setVitaWidgetVisible(*this, "VitaViewDistText", !dynFogOn);
+        setVitaWidgetVisible(*this, "VitaViewDistSlider", !dynFogOn);
+        // Target-fps + aggression dropdowns are meaningful only when dynamic fog is ON.
+        setVitaWidgetVisible(*this, "VitaDynFogTargetFpsRow", dynFogOn);
+        setVitaWidgetVisible(*this, "VitaDynFogAggressionRow", dynFogOn);
     }
 
     void SettingsWindow::hideIrrelevantVitaWidgets()

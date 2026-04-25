@@ -17,7 +17,7 @@
 #include <components/vita/CellCullCallback.h>
 #define VITA_CRUMB(msg) Vita::breadcrumb(msg)
 
-// Count drawables and total triangles in a scene graph subtree
+// Count drawables and total triangles in a scene graph subtree.
 static void countDrawables(const osg::Node* node, unsigned int& drawableCount, unsigned int& triCount)
 {
     if (!node) return;
@@ -1521,20 +1521,7 @@ namespace MWWorld
             {
 #ifdef __vita__
                 const bool isCenter = (x == playerCellX && y == playerCellY);
-                // Memory-budgeted loading: stop if heap is nearly full.
-                // Always load the player's cell regardless of budget.
-                if (!isCenter)
-                {
-                    int cellBudget = getVitaCellBudgetMB();
-                    if (Vita::isMemoryPressure(cellBudget))
-                    {
-                        char buf[128];
-                        snprintf(buf, sizeof(buf), "SKIP cell (%d,%d): heap %dMB > %dMB budget",
-                            x, y, Vita::getHeapUsedMB(), cellBudget);
-                        Vita::breadcrumb(buf);
-                        continue;
-                    }
-                }
+
 #endif
                 CellStore& cell = mWorld.getWorldModel().getExterior(indexToLoad);
 #ifdef __vita__

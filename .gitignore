@@ -137,3 +137,4 @@ boot.log
 debug.log
 openmw*.elf
 openmw*.velf
+/apt-cache/
