@@ -108,30 +108,7 @@ namespace SDLUtil
         }
 
 #ifdef __vita__
-        // vitaGL direct initialization — SDL2 Vita has no GL backend
-        // Custom GLSL shaders use fewer GXM parameters per draw than FFP megashader,
-        // but scenes with many draw calls can still exhaust the buffer causing GPU stalls.
-        // 12MB balances headroom vs memory (from vitaGL pool, not newlib heap).
-        vglSetParamBufferSize(8 * 1024 * 1024);
-        vglUseTripleBuffering(GL_TRUE);
-        vglWaitVblankStart(GL_FALSE); // We have our own 30fps framerate limiter
-        // Render at 640x368 — hardware scaler upscales to 960x544.
-        // Use custom sizes to limit CDRAM grab. vglInitExtended takes ALL CDRAM
-        // by default (112MB!). Vita has 128MB CDRAM total; display+depth ~5MB.
-        // NOTE: vitaGL allocates pools via sceKernelAllocMemBlock, NOT malloc —
-        // these do NOT come from the 224MB newlib heap.
-        vglInitWithCustomSizes(0x100000, 640, 368,
-            24 * 1024 * 1024,   // RAM pool: 24MB (vertex/index buffers + GUI)
-            64 * 1024 * 1024,   // CDRAM pool: 64MB (textures + display + depth)
-            0,                   // phycont: not needed
-            0,                   // cdlg: not needed
-            SCE_GXM_MULTISAMPLE_NONE);
-        vglUseVram(GL_TRUE); // Textures in CDRAM (117MB available, separate from heap)
-        // Initialize runtime shader compiler for FFP shader generation
-        vglSetupRuntimeShaderCompiler(SHARK_OPT_FAST, 1, 0, 1);
-
-        // Clear framebuffer to black immediately so the display doesn't show
-        // uninitialized white memory while FFP shaders compile on first run.
+        // vitaGL is initialized in Vita::initialize() before SDL_Init.
         glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
         glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
         vglSwapBuffers(GL_FALSE);

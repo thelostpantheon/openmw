@@ -454,7 +454,13 @@ namespace MWRender
         // (near 1-2). Since the rain is a regular geometry, it produces water ripples, also in theory it can be removed
         // if collides with something.
         osg::ref_ptr<RainCounter> counter = new RainCounter;
+#ifdef __vita__
+        // Vita: reduce rain spawn rate (~60% fewer drops) to stop storms tanking
+        // fps from particle overdraw. Storm is still visibly raining, just thinner.
+        counter->setNumberOfParticlesPerSecondToCreate(mRainMaxRaindrops / mRainEntranceSpeed * 8);
+#else
         counter->setNumberOfParticlesPerSecondToCreate(mRainMaxRaindrops / mRainEntranceSpeed * 20);
+#endif
         emitter->setCounter(counter);
         mCounter = counter;
 
@@ -643,7 +649,11 @@ namespace MWRender
             mPlacer->setYRange(-rainRange.y() / 2, rainRange.y() / 2);
             mPlacer->setZRange(-rainRange.z() / 2, rainRange.z() / 2);
 
+#ifdef __vita__
+            mCounter->setNumberOfParticlesPerSecondToCreate(mRainMaxRaindrops / mRainEntranceSpeed * 8);
+#else
             mCounter->setNumberOfParticlesPerSecondToCreate(mRainMaxRaindrops / mRainEntranceSpeed * 20);
+#endif
             mPrecipitationOccluder->updateRange(rainRange);
         }
     }

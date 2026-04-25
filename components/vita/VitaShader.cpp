@@ -41,6 +41,8 @@ namespace Vita
         "uniform vec4 u_lightAtten1;\n"
         "\n"
         "uniform float u_skyHorizonBlend;\n"
+        // for waterfalls and other texture-scrolling effects. Defaults to identity
+        "uniform mat4 u_texMat0;\n"
         "\n"
         "attribute vec4 osg_Vertex;\n"
         "attribute vec3 osg_Normal;\n"
@@ -93,7 +95,7 @@ namespace Vita
         "    lighting += calcPointLight(viewPos, u_lightPos1, u_lightDiffuse1, u_lightAtten1, viewNormal, matDiffuse.rgb);\n"
         "\n"
         "    v_color = vec4(min(lighting, vec3(1.0)), matDiffuse.a);\n"
-        "    v_texCoord = osg_MultiTexCoord0;\n"
+        "    v_texCoord = (u_texMat0 * vec4(osg_MultiTexCoord0, 0.0, 1.0)).xy;\n"
         "\n"
         // View-space z for fog: skips the sqrt of length(viewPos).
         "    float dist = -viewPos.z;\n"

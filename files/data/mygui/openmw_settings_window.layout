@@ -425,17 +425,17 @@
                             <UserString key="SettingLabelWidget" value="RenderDistanceLabel"/>
                             <UserString key="SettingLabelCaption" value="ViewDistanceValueCells"/>
                         </Widget>
-                        <Widget type="TextBox" skin="SandText" position="0 148 352 18" align="Left Top">
+                        <Widget type="TextBox" skin="SandText" position="0 148 352 18" align="Left Top" name="RenderDistanceLowLabel">
                             <Property key="Caption" value="#{OMWEngine:DistanceLow}"/>
                             <Property key="TextAlign" value="Left"/>
                         </Widget>
-                        <Widget type="TextBox" skin="SandText" position="0 148 352 18" align="Right Top">
+                        <Widget type="TextBox" skin="SandText" position="0 148 352 18" align="Right Top" name="RenderDistanceHighLabel">
                             <Property key="Caption" value="#{OMWEngine:DistanceHigh}"/>
                             <Property key="TextAlign" value="Right"/>
                         </Widget>
 
                     </Widget>
-                    <Widget type="TabItem">
+                    <Widget type="TabItem" name="WaterSettingsTab">
                         <Property key="Caption" value=" #{OMWEngine:Water} "/>
 
                         <Widget type="VBox" position_real="0 0 1 1" align="Stretch">
@@ -880,6 +880,16 @@
                         <UserString key="SettingMax" value="22"/>
                         <UserString key="SettingLabelWidget" value="VitaFontText"/>
                         <UserString key="SettingLabelCaption" value="VitaFontValue"/>
+                    </Widget>
+                </Widget>
+                <!-- Preload Cell Cache -->
+                <Widget type="Widget" position="4 210 352 32" align="Left Top HStretch" name="VitaCellCacheRow">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top">
+                        <Property key="Caption" value="Preload Cell Cache"/>
+                    </Widget>
+                    <Widget type="ComboBox" skin="MW_ComboBox" position="0 16 200 24" align="Left Top" name="VitaCellCacheList">
+                        <Property key="AddItem" value="1 (Default)"/>
+                        <Property key="AddItem" value="2 (More Cells)"/>
                     </Widget>
                 </Widget>
             </Widget>

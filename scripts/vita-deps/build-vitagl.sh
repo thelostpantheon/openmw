@@ -29,6 +29,7 @@ fi
 cd "${VITAGL_DIR}"
 
 # Flag set must match Dockerfile.vita.
+# NOTE: NO_TILE_CLIPPER and USE_SCRATCH_MEMORY were tried and produced visual artifacts
 make -j"$(nproc)" \
     DEPTH_STENCIL_HACK=1 \
     DRAW_SPEEDHACK=1 MATH_SPEEDHACK=1 \

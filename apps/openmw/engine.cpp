@@ -17,6 +17,7 @@
 
 #ifdef __vita__
 #include "vita/VitaInit.h"
+#include <psp2/kernel/processmgr.h>
 #define VITA_CRUMB(msg) Vita::breadcrumb(msg)
 #else
 #define VITA_CRUMB(msg)
@@ -1363,6 +1364,14 @@ void OMW::Engine::go()
     Settings::Manager::saveUser(mCfgMgr.getUserConfigPath() / "settings.cfg");
     Settings::ShaderManager::get().save();
     mLuaManager->savePermanentStorage(mCfgMgr.getUserConfigPath());
+
+#ifdef __vita__
+    // Skip C++ static destructors — vitaGL/OSG/Bullet teardown paths can hang
+    // on shutdown, leaving the app stuck instead of returning to LiveArea.
+    // Saves above are already complete; nothing else needs to run for a clean
+    // exit from the user's perspective.
+    sceKernelExitProcess(0);
+#endif
 }
 
 void OMW::Engine::setCompileAll(bool all)

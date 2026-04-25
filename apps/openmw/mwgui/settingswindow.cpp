@@ -10,6 +10,7 @@
 #include <MyGUI_ScrollBar.h>
 #include <MyGUI_ScrollView.h>
 #include <MyGUI_TabControl.h>
+#include <MyGUI_TabItem.h>
 #include <MyGUI_UString.h>
 #include <MyGUI_Window.h>
 
@@ -293,6 +294,17 @@ namespace MWGui
                 mVitaDynFogAggressionList->setIndexSelected(idx);
                 mVitaDynFogAggressionList->eventComboChangePosition
                     += MyGUI::newDelegate(this, &SettingsWindow::onVitaDynFogAggressionChanged);
+            }
+
+            // Cell cache dropdown (1/2)
+            getWidget(mVitaCellCacheList, "VitaCellCacheList");
+            if (mVitaCellCacheList)
+            {
+                const int current = Settings::cells().mPreloadCellCacheMax.get();
+                size_t idx = std::clamp(current, 1, 2) - 1;
+                mVitaCellCacheList->setIndexSelected(idx);
+                mVitaCellCacheList->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onVitaCellCacheChanged);
             }
         }
         catch (...)
@@ -762,6 +774,14 @@ namespace MWGui
         Settings::camera().mVitaDynFogAggression.set(kValues[pos]);
         apply();
     }
+
+    void SettingsWindow::onVitaCellCacheChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        const int value = std::clamp(static_cast<int>(pos) + 1, 1, 2);
+        Settings::cells().mPreloadCellCacheMax.set(value);
+        Settings::cells().mPreloadCellCacheMin.set(1);
+        apply();
+    }
 #endif
 
     void SettingsWindow::onTextureFilteringChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
@@ -1176,6 +1196,27 @@ namespace MWGui
         setVitaWidgetVisible(*this, "ResolutionList", false);
         setVitaWidgetVisible(*this, "WindowModeList", false);
         setVitaWidgetVisible(*this, "VSyncModeList", false);
+
+        // The Visuals-tab view-distance slider duplicates the Vita-tab one.
+        setVitaWidgetVisible(*this, "RenderDistanceLabel", false);
+        setVitaWidgetVisible(*this, "RenderingDistanceSlider", false);
+        setVitaWidgetVisible(*this, "LargeRenderingDistanceSlider", false);
+        setVitaWidgetVisible(*this, "RenderDistanceLowLabel", false);
+        setVitaWidgetVisible(*this, "RenderDistanceHighLabel", false);
+
+        // Water shaders crash the Vita renderer — strip the whole Water tab.
+        try
+        {
+            MyGUI::TabControl* tabs = nullptr;
+            MyGUI::TabItem* waterTab = nullptr;
+            getWidget(tabs, "SettingsTab");
+            getWidget(waterTab, "WaterSettingsTab");
+            if (tabs && waterTab)
+                tabs->removeItem(waterTab);
+        }
+        catch (...)
+        {
+        }
     }
 #endif
 

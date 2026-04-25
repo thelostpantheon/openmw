@@ -12,6 +12,8 @@
 #include <psp2/io/stat.h>
 #include <psp2/sysmodule.h>
 
+#include <vitaGL.h>
+
 #include <LinearMath/btAlignedAllocator.h>
 
 #include <components/debug/debuglog.hpp>
@@ -37,7 +39,7 @@
 // newlib crt0 resolve them as unmangled C symbols at process startup.
 extern "C" {
 // Extra memory mode (ATTRIBUTE2=12) grants ~357MB total user RAM.
-unsigned int _newlib_heap_size_user = 240 * 1024 * 1024;
+unsigned int _newlib_heap_size_user = 256 * 1024 * 1024;
 unsigned int sceUserMainThreadStackSize = 2 * 1024 * 1024;
 
 // Write an unsigned int as decimal to fd (no heap allocation)
@@ -212,7 +214,7 @@ namespace Vita
     // Emergency reserve: freed on first OOM to give breathing room for
     // the failing allocation to succeed. The per-frame watchdog then
     // detects the high memory state and flushes caches next frame.
-    static constexpr size_t EMERGENCY_RESERVE_SIZE = 4 * 1024 * 1024; // 4MB
+    static constexpr size_t EMERGENCY_RESERVE_SIZE = 6 * 1024 * 1024; // 6MB
     static void* s_emergencyReserve = nullptr;
 
     size_t getFreeUserMemory()
@@ -721,6 +723,20 @@ namespace Vita
 
         initClocks();
 
+        // Initialize vitaGL before SDL_Init so SDL2's video subsystem skips its default init.
+        vglSetParamBufferSize(8 * 1024 * 1024);
+        vglUseTripleBuffering(GL_TRUE);
+        vglWaitVblankStart(GL_FALSE);
+        vglInitWithCustomSizes(0x100000, 640, 368,
+            16 * 1024 * 1024,
+            88 * 1024 * 1024,
+            0,
+            0,
+            SCE_GXM_MULTISAMPLE_NONE);
+        vglUseVram(GL_TRUE);
+        vglSetupRuntimeShaderCompiler(SHARK_OPT_FAST, 1, 0, 1);
+        breadcrumb("BOOT: vitaGL initialized");
+
         // IME sysmodule is loaded later by Vita::initIme()
 
         char initBuf[128];
@@ -842,8 +858,7 @@ namespace Vita
         Settings::cells().mPreloadFastTravel.set(false);
         Settings::cells().mPreloadDoors.set(false);
         Settings::cells().mPreloadInstances.set(false);
-        Settings::cells().mPreloadCellCacheMin.set(1);
-        Settings::cells().mPreloadCellCacheMax.set(2);
+        // Cache size: defaulted from bundled settings.cfg (max=2) so the UI can override.
         Settings::cells().mCacheExpiryDelay.set(0.25f);
         Settings::cells().mTargetFramerate.set(30.0f);
         Settings::cells().mPointersCacheSize.set(40);
@@ -868,7 +883,7 @@ namespace Vita
 
         // --- GUI: scale for 960x544 screen, enable controller menus ---
         Settings::gui().mScalingFactor.set(0.8f);
-        Settings::gui().mFontSize.set(16);
+        Settings::gui().mFontSize.set(18);
         Settings::gui().mControllerMenus.set(true);
 
         // --- Groundcover: disabled ---

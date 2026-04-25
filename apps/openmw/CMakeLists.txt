@@ -146,6 +146,40 @@ if (MSVC)
     )
 endif()
 
+if (VITA)
+    set_source_files_properties(
+        mwgui/console.cpp
+        mwgui/debugwindow.cpp
+        mwgui/settingswindow.cpp
+        mwgui/savegamedialog.cpp
+        mwgui/journalwindow.cpp
+        mwgui/journalbooks.cpp
+        mwgui/journalviewmodel.cpp
+        mwgui/charactercreation.cpp
+        mwgui/race.cpp
+        mwgui/class.cpp
+        mwgui/birth.cpp
+        mwgui/review.cpp
+        mwgui/levelupdialog.cpp
+        mwgui/spellcreationdialog.cpp
+        mwgui/enchantingdialog.cpp
+        mwgui/trainingwindow.cpp
+        mwgui/travelwindow.cpp
+        mwgui/merchantrepair.cpp
+        mwgui/repair.cpp
+        mwgui/recharge.cpp
+        mwgui/postprocessorhud.cpp
+        mwgui/textinput.cpp
+        mwgui/itemselection.cpp
+        mwgui/companionwindow.cpp
+        mwgui/soulgemdialog.cpp
+        mwgui/waitdialog.cpp
+        mwgui/jailscreen.cpp
+        PROPERTIES
+        COMPILE_FLAGS "-Os"
+    )
+endif()
+
 if(BUILD_OPENMW)
     if (ANDROID)
         add_library(openmw SHARED
@@ -382,7 +416,6 @@ if (VITA AND BUILD_OPENMW)
         FILE ${CMAKE_BINARY_DIR}/defaults.bin defaults.bin
         FILE ${CMAKE_SOURCE_DIR}/apps/openmw/vita/settings.cfg settings.cfg
         FILE ${VITA_DATA_DIR}/sce_sys/icon0.png sce_sys/icon0.png
-        FILE ${VITA_DATA_DIR}/sce_sys/pic0.png sce_sys/pic0.png
         FILE ${VITA_DATA_DIR}/sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
         FILE ${VITA_DATA_DIR}/sce_sys/livearea/contents/bg0.png sce_sys/livearea/contents/bg0.png
         FILE ${VITA_DATA_DIR}/sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
