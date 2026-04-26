@@ -22,6 +22,8 @@ PS Vita Port
 
 Full port of OpenMW to PS Vita via [vitaGL](https://github.com/Rinnegatamante/vitaGL). Runs Morrowind, Tribunal, and Bloodmoon at 15–30 FPS at 640x368 render resolution (upscaled to native 960x544) with controller input, front touchscreen cursor, and a dynamic fog system that auto-scales draw distance to hold target framerate.
 
+AI Usage: AI Assisted (Dependency/Build system detangling, other odds ends and analysis.)
+
 ### Installation
 
 - Install `openmw.vpk` on your Vita using VitaShell
