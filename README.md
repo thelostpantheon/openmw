@@ -31,7 +31,7 @@ AI Usage: AI Assisted (Dependency/Build system detangling, other odds ends and a
   - `Morrowind.esm`, `Morrowind.bsa`
   - `Tribunal.esm`, `Tribunal.bsa` (if GOTY)
   - `Bloodmoon.esm`, `Bloodmoon.bsa` (if GOTY)
-  - `meshes/`, `textures/`, `sound/`, `music/`, etc.
+  - `meshes/`, `textures/`, `sound/`, `music/`, `fonts/`, `splash/`, `video/`, etc.
 - Launch from the home screen (first boot is slow while shaders compile)
 
 ### Controls
