@@ -34,26 +34,26 @@ Full port of OpenMW to PS Vita via [vitaGL](https://github.com/Rinnegatamante/vi
 
 ### Controls
 
-| Input | Action |
-| --- | --- |
-| Left stick | Move |
-| Right stick | Look |
-| Cross | Activate / Talk / Confirm |
-| Square | Toggle weapon (ready / sheathe) |
-| Triangle | Toggle spell (ready / unready) |
-| Circle | Inventory / Back |
-| L trigger | Jump |
-| R trigger | Attack / Cast (use equipped) |
-| D-pad Up | Rest / Wait |
-| D-pad Down | Sneak |
-| D-pad Left | Cycle weapon |
-| D-pad Right | Cycle spell |
-| L3 (left stick click) | Toggle 1st / 3rd person |
-| R3 (right stick click) | Quick save |
-| Start | Game menu |
-| Select | Journal |
-| Hold Select + Start | Console |
-| Front touchscreen | Cursor (in menus) |
+| Input                              | Action |
+|------------------------------------| --- |
+| Left stick                         | Move |
+| Right stick                        | Look |
+| Cross                              | Activate / Talk / Confirm |
+| Square                             | Toggle weapon (ready / sheathe) |
+| Triangle                           | Toggle spell (ready / unready) |
+| Circle                             | Inventory / Back |
+| L trigger                          | Jump |
+| R trigger                          | Attack / Cast (use equipped) |
+| D-pad Up                           | Rest / Wait |
+| D-pad Down                         | Sneak |
+| D-pad Left                         | Cycle weapon |
+| D-pad Right                        | Cycle spell |
+| L3 (Top Left Corner Touch Screen)  | Toggle 1st / 3rd person |
+| R3 (Top Right Corner Touch Screen) | Quick save |
+| Start                              | Game menu |
+| Select                             | Journal |
+| Hold Select + Start                | Console |
+| Front touchscreen                  | Cursor (in menus) |
 
 ### Vita Settings
 
