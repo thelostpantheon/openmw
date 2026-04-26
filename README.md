@@ -32,6 +32,8 @@ AI Usage: AI Assisted (Dependency/Build system detangling, other odds ends and a
   - `Tribunal.esm`, `Tribunal.bsa` (if GOTY)
   - `Bloodmoon.esm`, `Bloodmoon.bsa` (if GOTY)
   - `meshes/`, `textures/`, `sound/`, `music/`, `fonts/`, `splash/`, `video/`, etc.
+
+- Copy your Morrowind.ini `ux0:data/openmw/`:
 - Launch from the home screen (first boot is slow while shaders compile)
 
 ### Controls
