@@ -1317,7 +1317,7 @@ void OMW::Engine::go()
                             // Two-tier shrink: catastrophic snap is fixed (always
                             // saves you), proportional response scales with the
                             // aggression setting.
-                            if (fps <= 13.f)
+                            if (fps < 15.f)
                                 step = -2000.f;
                             else
                                 step = std::clamp(fpsGap * shrinkCoef, -shrinkMaxAbs, -20.f);

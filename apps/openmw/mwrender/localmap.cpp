@@ -169,9 +169,6 @@ namespace MWRender
     void LocalMap::setupRenderToTexture(
         int segmentX, int segmentY, float left, float top, const osg::Vec3d& upVector, float zmin, float zmax)
     {
-#ifdef __vita__
-        return;
-#endif
         mLocalMapRTTs.emplace_back(
             new LocalMapRenderToTexture(mSceneRoot, mMapResolution, mMapWorldSize, left, top, upVector, zmin, zmax));
 
@@ -721,7 +718,13 @@ namespace MWRender
         SceneUtil::setCameraClearDepth(camera);
         camera->setComputeNearFarMode(osg::Camera::DO_NOT_COMPUTE_NEAR_FAR);
         camera->setReferenceFrame(osg::Camera::ABSOLUTE_RF_INHERIT_VIEWPOINT);
+#ifdef __vita__
+        // PIXEL_BUFFER_RTT requires GLX/WGL pbuffers — not available on Vita.
+        // FBO-only avoids OSG silently falling through to the broken backend.
+        camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+#else
         camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT, osg::Camera::PIXEL_BUFFER_RTT);
+#endif
         camera->setClearColor(osg::Vec4(0.f, 0.f, 0.f, 1.f));
         camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
         camera->setRenderOrder(osg::Camera::PRE_RENDER);
@@ -754,6 +757,14 @@ namespace MWRender
         stateset->addUniform(new osg::Uniform("far", 10000000.0f));
         stateset->addUniform(new osg::Uniform("skyBlendingStart", 8000000.0f));
         stateset->addUniform(new osg::Uniform("screenRes", osg::Vec2f{ 1, 1 }));
+#ifdef __vita__
+        // VitaLit reads u_fogStart/u_fogEnd; dynamic fog shrinks them to ~1500
+        // for the main scene, which would fog out the entire top-down view.
+        stateset->addUniform(
+            new osg::Uniform("u_fogStart", 10000000.0f), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+        stateset->addUniform(
+            new osg::Uniform("u_fogEnd", 10000000.0f), osg::StateAttribute::ON | osg::StateAttribute::OVERRIDE);
+#endif
 
         osg::ref_ptr<osg::LightModel> lightmodel = new osg::LightModel;
         lightmodel->setAmbientIntensity(osg::Vec4(0.3f, 0.3f, 0.3f, 1.f));

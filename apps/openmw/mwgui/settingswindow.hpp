@@ -112,6 +112,9 @@ namespace MWGui
         // Fog aggression dropdown (Normal/Aggressive/Very Aggressive)
         MyGUI::ComboBox* mVitaDynFogAggressionList = nullptr;
         void onVitaDynFogAggressionChanged(MyGUI::ComboBox* sender, size_t pos);
+        // Preload cell cache size (1/2/3)
+        MyGUI::ComboBox* mVitaCellCacheList = nullptr;
+        void onVitaCellCacheChanged(MyGUI::ComboBox* sender, size_t pos);
 #endif
 
         void onRebindAction(MyGUI::Widget* sender);

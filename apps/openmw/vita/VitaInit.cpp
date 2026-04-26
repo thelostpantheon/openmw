@@ -529,8 +529,9 @@ namespace Vita
             || strcmp(name, "images") == 0 || strcmp(name, "screenshots") == 0;
     }
 
-    // Walks mods/ two levels deep and appends data= entries for data roots.
-    // Additive.
+    // Walks mods/ two levels deep and appends data= entries for data roots,
+    // plus content= for .esm/.esp/.omwaddon/.omwscripts and fallback-archive=
+    // for .bsa found inside each data root. Additive.
     static void autoDetectModDataDirs()
     {
         static const char* modsDir = "ux0:data/openmw/mods";
@@ -552,6 +553,20 @@ namespace Vita
         }
 
         bool headerWritten = false;
+        bool pluginHeaderWritten = false;
+
+        // In-run dedupe: a plugin appended in this scan isn't in cfgBuf yet,
+        // so we'd otherwise re-add it if two mods bundle the same file. OpenMW
+        // aborts on duplicate content= lines, so we track them here.
+        static constexpr int MAX_RUN_PLUGINS = 256;
+        char appendedPlugins[MAX_RUN_PLUGINS][256];
+        int appendedCount = 0;
+        auto wasAlreadyAppendedThisRun = [&](const char* name) -> bool {
+            for (int i = 0; i < appendedCount; ++i)
+                if (strcmp(appendedPlugins[i], name) == 0)
+                    return true;
+            return false;
+        };
 
         auto tryAdd = [&](const char* path) {
             if (cfgBuf && cfgContainsEntry(cfgBuf, "data", path))
@@ -571,6 +586,84 @@ namespace Vita
             breadcrumb(crumb);
         };
 
+        // Scan a data root for plugin files / archives and append entries.
+        // type ordering: 0=esm, 1=esp, 2=omwaddon, 3=omwscripts, 4=bsa.
+        auto scanPluginsIn = [&](const char* dataRoot) {
+            SceUID dd = sceIoDopen(dataRoot);
+            if (dd < 0)
+                return;
+
+            struct PE { char name[256]; int type; };
+            static constexpr int MAX = 64;
+            PE entries[MAX];
+            int count = 0;
+
+            SceIoDirent ent{};
+            while (sceIoDread(dd, &ent) > 0 && count < MAX)
+            {
+                if (ent.d_name[0] == '.' || SCE_S_ISDIR(ent.d_stat.st_mode))
+                {
+                    memset(&ent, 0, sizeof(ent));
+                    continue;
+                }
+                int type = -1;
+                if (hasExtension(ent.d_name, ".esm")) type = 0;
+                else if (hasExtension(ent.d_name, ".esp")) type = 1;
+                else if (hasExtension(ent.d_name, ".omwaddon")) type = 2;
+                else if (hasExtension(ent.d_name, ".omwscripts")) type = 3;
+                else if (hasExtension(ent.d_name, ".bsa")) type = 4;
+                if (type >= 0)
+                {
+                    const char* key = (type == 4) ? "fallback-archive" : "content";
+                    if (!(cfgBuf && cfgContainsEntry(cfgBuf, key, ent.d_name))
+                        && !wasAlreadyAppendedThisRun(ent.d_name))
+                    {
+                        memcpy(entries[count].name, ent.d_name, 256);
+                        entries[count].type = type;
+                        ++count;
+                    }
+                }
+                memset(&ent, 0, sizeof(ent));
+            }
+            sceIoDclose(dd);
+
+            for (int i = 0; i < count - 1; ++i)
+                for (int j = i + 1; j < count; ++j)
+                {
+                    bool swap = false;
+                    if (entries[i].type > entries[j].type) swap = true;
+                    else if (entries[i].type == entries[j].type
+                        && strcmp(entries[i].name, entries[j].name) > 0) swap = true;
+                    if (swap)
+                    {
+                        PE tmp = entries[i]; entries[i] = entries[j]; entries[j] = tmp;
+                    }
+                }
+
+            for (int i = 0; i < count; ++i)
+            {
+                if (!pluginHeaderWritten)
+                {
+                    static const char hdr[] = "\n# Auto-detected mod plugins\n";
+                    sceIoWrite(fd, hdr, sizeof(hdr) - 1);
+                    pluginHeaderWritten = true;
+                }
+                const char* key = (entries[i].type == 4) ? "fallback-archive=" : "content=";
+                char line[300];
+                int len = snprintf(line, sizeof(line), "%s%s\n", key, entries[i].name);
+                if (len > 0)
+                    sceIoWrite(fd, line, len);
+                if (appendedCount < MAX_RUN_PLUGINS)
+                {
+                    memcpy(appendedPlugins[appendedCount], entries[i].name, 256);
+                    ++appendedCount;
+                }
+                char buf[300];
+                snprintf(buf, sizeof(buf), "Auto-detected mod plugin: %s%s", key, entries[i].name);
+                breadcrumb(buf);
+            }
+        };
+
         SceIoDirent modEnt{};
         while (sceIoDread(dfd, &modEnt) > 0)
         {
@@ -584,7 +677,10 @@ namespace Vita
 
             // Flat-layout: mods/Foo/Meshes
             if (isDataRoot(modPath))
+            {
                 tryAdd(modPath);
+                scanPluginsIn(modPath);
+            }
 
             // FOMOD-layout: mods/Foo/00 Core/Meshes
             SceUID sub = sceIoDopen(modPath);
@@ -602,7 +698,10 @@ namespace Vita
                 char subPath[1024];
                 snprintf(subPath, sizeof(subPath), "%s/%s", modPath, subEnt.d_name);
                 if (isDataRoot(subPath))
+                {
                     tryAdd(subPath);
+                    scanPluginsIn(subPath);
+                }
             }
             sceIoDclose(sub);
         }
@@ -877,7 +976,7 @@ namespace Vita
         Settings::general().mAnisotropy.set(0);
 
         // --- Map: reduced resolution to save RAM ---
-        Settings::map().mLocalMapResolution.set(32);
+        Settings::map().mLocalMapResolution.set(64);
         Settings::map().mLocalMapWidgetSize.set(128);
         Settings::map().mGlobalMapCellSize.set(4);
 

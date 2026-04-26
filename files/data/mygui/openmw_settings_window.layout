@@ -269,7 +269,7 @@
                     </Widget>
                 </Widget>
             </Widget>
-            <Widget type="TabItem">
+            <Widget type="TabItem" name="VideoSettingsTab">
                 <Property key="Caption" value=" #{OMWEngine:Video} "/>
                 <Widget type="TabControl" skin="TabControlInner" position="4 4 352 390" align="Stretch">
                     <Property key="ButtonAutoWidth" value="true"/>

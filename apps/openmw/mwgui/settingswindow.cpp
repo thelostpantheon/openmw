@@ -1204,15 +1204,30 @@ namespace MWGui
         setVitaWidgetVisible(*this, "RenderDistanceLowLabel", false);
         setVitaWidgetVisible(*this, "RenderDistanceHighLabel", false);
 
-        // Water shaders crash the Vita renderer — strip the whole Water tab.
+        // Strip Vita-incompatible top-level tabs (Water shaders crash the
+        // renderer; Video controls are PC-only — resolution/windowmode/vsync).
         try
         {
             MyGUI::TabControl* tabs = nullptr;
-            MyGUI::TabItem* waterTab = nullptr;
             getWidget(tabs, "SettingsTab");
-            getWidget(waterTab, "WaterSettingsTab");
-            if (tabs && waterTab)
-                tabs->removeItem(waterTab);
+            if (tabs)
+            {
+                static const std::array<const char*, 2> kTabsToRemove = {
+                    "WaterSettingsTab", "VideoSettingsTab"
+                };
+                for (const char* name : kTabsToRemove)
+                {
+                    for (size_t i = tabs->getItemCount(); i > 0; --i)
+                    {
+                        MyGUI::TabItem* item = tabs->getItemAt(i - 1);
+                        if (item && item->getName() == name)
+                        {
+                            tabs->removeItemAt(i - 1);
+                            break;
+                        }
+                    }
+                }
+            }
         }
         catch (...)
         {

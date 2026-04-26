@@ -1403,13 +1403,13 @@ namespace MWWorld
         }
 
 #ifdef __vita__
-        // Two-pass flush: each pass frees one layer of the reference chain
-        // (pass 1: statesets/drawables, pass 2: textures/images they held).
-        for (int pass = 0; pass < 2; ++pass)
-        {
-            mRendering.flushUnrefQueueImmediate();
-            mRendering.getResourceSystem()->clearCache();
-        }
+        // Single tree-walk flush: walking clearCache twice mutates Rb_trees
+        // while destructors run and corrupted heap metadata. Trailing flushes
+        // let layered refs (statesets → textures) cascade without re-walking.
+        mRendering.flushUnrefQueueImmediate();
+        mRendering.getResourceSystem()->clearCache();
+        mRendering.flushUnrefQueueImmediate();
+        mRendering.flushUnrefQueueImmediate();
         mRendering.getResourceSystem()->updateCache(mRendering.getReferenceTime());
         Vita::logMemoryStatus("Post-flush");
 #endif
@@ -1557,6 +1557,49 @@ namespace MWWorld
         mNavigator.update(pos, navigatorUpdateGuard.get());
 
         navigatorUpdateGuard.reset();
+
+#ifdef __vita__
+        {
+            CellStore* center = nullptr;
+            for (auto* c : mActiveCells)
+            {
+                if (c->getCell()->isExterior()
+                    && c->getCell()->getWorldSpace() == playerCellIndex.mWorldspace
+                    && c->getCell()->getGridX() == playerCellX
+                    && c->getCell()->getGridY() == playerCellY)
+                {
+                    center = c;
+                    break;
+                }
+            }
+            auto tierIt = center ? mCellLoadTiers.find(center) : mCellLoadTiers.end();
+            const bool needsLoad = !center;
+            const bool needsPromote = center
+                && (tierIt == mCellLoadTiers.end() || tierIt->second != CellLoadTier::Full);
+            if (needsLoad || needsPromote)
+            {
+                Vita::breadcrumb(needsLoad
+                    ? "changeCellGrid: center missing — emergency load"
+                    : "changeCellGrid: center not Full — emergency promote");
+                auto rescueGuard = mNavigator.makeUpdateGuard();
+                if (needsLoad)
+                {
+                    CellStore& cellRef = mWorld.getWorldModel().getExterior(playerCellIndex);
+                    loadCell(cellRef, loadingListener, changeEvent, pos, rescueGuard.get());
+                }
+                else if (tierIt == mCellLoadTiers.end())
+                {
+                    insertCellLite(*center, loadingListener, rescueGuard.get());
+                    mCellLoadTiers[center] = CellLoadTier::Lite;
+                    promoteCellToFull(*center, loadingListener, rescueGuard.get());
+                }
+                else
+                {
+                    promoteCellToFull(*center, loadingListener, rescueGuard.get());
+                }
+            }
+        }
+#endif
 
         CellStore& current = mWorld.getWorldModel().getExterior(playerCellIndex);
         MWBase::Environment::get().getWindowManager()->changeCell(&current);
