@@ -17,24 +17,86 @@ Font Licenses:
 * DemonicLetters.ttf: SIL Open Font License (see [files/data/fonts/DemonicLettersFontLicense.txt](https://gitlab.com/OpenMW/openmw/-/raw/master/files/data/fonts/DemonicLettersFontLicense.txt) for more information)
 * MysticCards.ttf: SIL Open Font License (see [files/data/fonts/MysticCardsFontLicense.txt](https://gitlab.com/OpenMW/openmw/-/raw/master/files/data/fonts/MysticCardsFontLicense.txt) for more information)
 
-PS Vita
--------
+PS Vita Port
+------------
 
-Native ARM port using [vitaGL](https://github.com/Rinnegatamante/vitaGL). Plays Morrowind, Tribunal, and Bloodmoon on hacked Vita / PS TV (HENkaku, FW 3.60 or 3.65). Requires VitaShell to install the VPK.
+Full port of OpenMW to PS Vita via [vitaGL](https://github.com/Rinnegatamante/vitaGL). Runs Morrowind, Tribunal, and Bloodmoon at 15–30 FPS at 640x368 render resolution (upscaled to native 960x544) with controller input, front touchscreen cursor, and a dynamic fog system that auto-scales draw distance to hold target framerate.
 
-Install: transfer `openmw.vpk` to the Vita and install via VitaShell. Copy your Morrowind `Data Files` folder to `ux0:data/openmw/Data Files/`. Launch from the LiveArea — first boot takes longer while shaders compile.
+### Installation
 
-Controls: left stick moves, right stick looks. X activates, Square attacks, Triangle jumps, Circle is inventory/back. L/R toggle weapon/spell. D-pad: Up rests, Down sneaks, Left/Right cycle weapon/spell. START opens the game menu, SELECT opens the journal, START+SELECT opens the console.
+- Install `openmw.vpk` on your Vita using VitaShell
+- Copy your Morrowind game data to `ux0:data/openmw/Data Files/`:
+  - `Morrowind.esm`, `Morrowind.bsa`
+  - `Tribunal.esm`, `Tribunal.bsa` (if GOTY)
+  - `Bloodmoon.esm`, `Bloodmoon.bsa` (if GOTY)
+  - `meshes/`, `textures/`, `sound/`, `music/`, etc.
+- Launch from the home screen (first boot is slow while shaders compile)
 
-Mods: drop full mod folders into `ux0:data/openmw/mods/<name>/`. Their data paths, plugin files (`.esm/.esp/.omwaddon/.omwscripts`), and `.bsa` archives are auto-detected on next boot. Loose files can also go directly under `Data Files/`. Recommended starter: [Morrowind Optimization Patch](https://www.nexusmods.com/morrowind/mods/45384) — meaningfully better FPS in Vivec and Balmora.
+### Controls
 
-Saves live in `ux0:data/openmw/saves/` and are interchangeable with PC OpenMW saves (not vanilla Morrowind saves).
+| Input | Action |
+| --- | --- |
+| Left stick | Move |
+| Right stick | Look |
+| Cross | Activate / Talk / Confirm |
+| Square | Toggle weapon (ready / sheathe) |
+| Triangle | Toggle spell (ready / unready) |
+| Circle | Inventory / Back |
+| L trigger | Jump |
+| R trigger | Attack / Cast (use equipped) |
+| D-pad Up | Rest / Wait |
+| D-pad Down | Sneak |
+| D-pad Left | Cycle weapon |
+| D-pad Right | Cycle spell |
+| L3 (left stick click) | Toggle 1st / 3rd person |
+| R3 (right stick click) | Quick save |
+| Start | Game menu |
+| Select | Journal |
+| Hold Select + Start | Console |
+| Front touchscreen | Cursor (in menus) |
 
-Tuning: the Vita tab in Settings exposes view distance, dynamic-fog target FPS, fog aggression, FoV, font size, and preload cell cache. Dynamic fog auto-shrinks draw distance to hold target FPS.
+### Vita Settings
 
-Notes: video plays without audio. Shadows, post-processing, water shaders, distant terrain, and groundcover are disabled for performance. The Water and Video tabs are removed from Settings.
+A dedicated Vita tab is available under Options in the game menu:
 
-Build: easiest is `sudo docker build -f Dockerfile.vita -t openmw-vita .` then extract `/src/build-vita/apps/openmw/openmw.vpk` from the container. To build manually, install the [VitaSDK](https://vitasdk.org/) toolchain, run `scripts/vita-deps/build-all.sh` to build vitaGL + Boost/LuaJIT/FFmpeg/ICU/PVR_PSP2, then `cmake -DCMAKE_TOOLCHAIN_FILE=cmake/VitaToolchain.cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo ..` and `make -j$(nproc) openmw.vpk-vpk`. Output lands at `build-vita/apps/openmw/openmw.vpk`.
+- Dynamic Fog — auto-shrinks draw distance to hold target FPS
+- Dynamic Fog Target FPS — 15 (max distance), 18 (long), or 20 (balanced)
+- Dynamic Fog Aggression — Normal, Aggressive, or Very Aggressive (how hard fog reacts to FPS dips)
+- View Distance — manual draw distance when dynamic fog is off
+- Field of View
+- Font Size
+- Preload Cell Cache — 1 (default) or 2 (smoother cell transitions, more RAM)
+
+### Mods
+
+Drop full mod folders into `ux0:data/openmw/mods/<name>/`. Plugin files (`.esm`, `.esp`, `.omwaddon`, `.omwscripts`) and `.bsa` archives inside are auto-detected and added to the load order on next boot. Loose meshes/textures can also go directly under `Data Files/`. Saves live in `ux0:data/openmw/saves/` and are interchangeable with PC OpenMW saves.
+
+Recommended starter: [Morrowind Optimization Patch](https://www.nexusmods.com/morrowind/mods/45384) — meaningfully better FPS thanks to simpler meshes.
+
+### Notes
+
+- Video plays without audio
+- Shadows, post-processing, water shaders, distant terrain, and groundcover are disabled for performance
+- Water and Video tabs are removed from Settings
+
+### Building for Vita
+
+Requires the [VitaSDK](https://vitasdk.org/) toolchain. Docker is easiest:
+
+```bash
+$ sudo docker build -f Dockerfile.vita -t openmw-vita .
+$ sudo docker create --name openmw-vita-build openmw-vita
+$ sudo docker cp openmw-vita-build:/src/build-vita/apps/openmw/openmw.vpk .
+```
+
+Or manually:
+
+```bash
+$ ./scripts/vita-deps/build-all.sh
+$ mkdir build-vita && cd build-vita
+$ cmake -DCMAKE_TOOLCHAIN_FILE=../cmake/VitaToolchain.cmake ..
+$ make -j$(nproc) openmw.vpk-vpk
+```
 
 Current Status
 --------------
