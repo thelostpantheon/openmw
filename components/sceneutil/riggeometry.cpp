@@ -52,21 +52,33 @@ namespace SceneUtil
 
             osg::Geometry& to = *mGeometry[i];
             to.setSupportsDisplayList(false);
+#ifdef __vita__
+            // On Vita, use client-side arrays for RigGeometry instead of VBOs.
+            // vitaGL's VBO memory can be read by the GPU from the previous frame while
+            // RigGeometry overwrites it with new skinned vertices, causing stretched
+            // triangle artifacts. Client-side arrays get a fresh GPU allocation each draw.
+            to.setUseVertexBufferObjects(false);
+#else
             to.setUseVertexBufferObjects(true);
+#endif
             to.setCullingActive(false); // make sure to disable culling since that's handled by this class
             to.setComputeBoundingBoxCallback(new CopyBoundingBoxCallback());
             to.setComputeBoundingSphereCallback(new CopyBoundingSphereCallback());
 
             // vertices and normals are modified every frame, so we need to deep copy them.
             // assign a dedicated VBO to make sure that modifications don't interfere with source geometry's VBO.
+#ifndef __vita__
             osg::ref_ptr<osg::VertexBufferObject> vbo(new osg::VertexBufferObject);
             vbo->setUsage(GL_DYNAMIC_DRAW_ARB);
+#endif
 
             osg::ref_ptr<osg::Array> vertexArray
                 = static_cast<osg::Array*>(from.getVertexArray()->clone(osg::CopyOp::DEEP_COPY_ALL));
             if (vertexArray)
             {
+#ifndef __vita__
                 vertexArray->setVertexBufferObject(vbo);
+#endif
                 to.setVertexArray(vertexArray);
             }
 
@@ -76,7 +88,9 @@ namespace SceneUtil
                     = static_cast<osg::Array*>(normals->clone(osg::CopyOp::DEEP_COPY_ALL));
                 if (normalArray)
                 {
+#ifndef __vita__
                     normalArray->setVertexBufferObject(vbo);
+#endif
                     to.setNormalArray(normalArray, osg::Array::BIND_PER_VERTEX);
                 }
             }
@@ -86,7 +100,9 @@ namespace SceneUtil
                 mSourceTangents = tangents;
                 osg::ref_ptr<osg::Array> tangentArray
                     = static_cast<osg::Array*>(tangents->clone(osg::CopyOp::DEEP_COPY_ALL));
+#ifndef __vita__
                 tangentArray->setVertexBufferObject(vbo);
+#endif
                 to.setTexCoordArray(7, tangentArray, osg::Array::BIND_PER_VERTEX);
             }
             else

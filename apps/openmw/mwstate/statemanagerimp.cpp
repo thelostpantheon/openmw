@@ -6,6 +6,15 @@
 
 #include <components/debug/debuglog.hpp>
 
+#ifdef __vita__
+#include "../vita/VitaInit.h"
+#include "../mwrender/renderingmanager.hpp"
+#include <components/resource/resourcesystem.hpp>
+#define VITA_CRUMB(msg) Vita::breadcrumb(msg)
+#else
+#define VITA_CRUMB(msg)
+#endif
+
 #include <components/esm3/actoridconverter.hpp>
 #include <components/esm3/esmreader.hpp>
 #include <components/esm3/esmwriter.hpp>
@@ -62,6 +71,13 @@ void MWState::StateManager::cleanup(bool force)
         MWBase::Environment::get().getWorld()->clear();
         MWBase::Environment::get().getInputManager()->clear();
         MWBase::Environment::get().getMechanicsManager()->clear();
+
+#ifdef __vita__
+        // Vita: free cached resources immediately (save loader needs the RAM).
+        MWBase::Environment::get().getWorld()->getRenderingManager()->flushUnrefQueueImmediate();
+        MWBase::Environment::get().getResourceSystem()->clearCache();
+        Vita::logMemoryStatus("Post-cleanup");
+#endif
 
         mCharacterManager.setCurrentCharacter(nullptr);
         mTimePlayed = 0;
@@ -163,6 +179,7 @@ MWState::StateManager::State MWState::StateManager::getState() const
 
 void MWState::StateManager::newGame(bool bypass)
 {
+    VITA_CRUMB("newGame() enter");
     cleanup();
 
     if (!bypass)
@@ -171,14 +188,18 @@ void MWState::StateManager::newGame(bool bypass)
     try
     {
         Log(Debug::Info) << "Starting a new game";
+        VITA_CRUMB("newGame() addStartup");
         MWBase::Environment::get().getScriptManager()->getGlobalScripts().addStartup();
+        VITA_CRUMB("newGame() startNewGame");
         MWBase::Environment::get().getWorld()->startNewGame(bypass);
+        VITA_CRUMB("newGame() startNewGame done");
 
         mState = State_Running;
         MWBase::Environment::get().getLuaManager()->gameLoaded();
 
         MWBase::Environment::get().getWindowManager()->fadeScreenOut(0);
         MWBase::Environment::get().getWindowManager()->fadeScreenIn(1);
+        VITA_CRUMB("newGame() done");
     }
     catch (std::exception& e)
     {
@@ -453,6 +474,13 @@ void MWState::StateManager::loadGame(const Character* character, const std::file
     try
     {
         cleanup();
+
+#ifdef __vita__
+        // Flush caches before save loading (cleanup may skip on first load).
+        MWBase::Environment::get().getWorld()->getRenderingManager()->flushUnrefQueueImmediate();
+        MWBase::Environment::get().getResourceSystem()->clearCache();
+        Vita::logMemoryStatus("Pre-save-load");
+#endif
 
         Log(Debug::Info) << "Reading save file " << filepath.filename();
 

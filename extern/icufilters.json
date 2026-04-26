@@ -1,4 +1,8 @@
 {
+    "localeFilter": {
+        "filterType": "language",
+        "includelist": ["root", "en", "fr", "de", "es", "it", "pt", "ru", "pl"]
+    },
     "featureFilters": {
         "brkitr_rules": "exclude",
         "brkitr_dictionaries": "exclude",
@@ -14,6 +18,12 @@
         "lang_tree": "exclude",
         "normalization": "exclude",
         "region_tree": "exclude",
-        "stringprep": "exclude"
+        "stringprep": "exclude",
+        "unames": "exclude",
+        "ulayout": "exclude",
+        "curr_supplemental": "exclude",
+        "curr_tree": "exclude",
+        "rbnf_tree": "exclude",
+        "misc": "include"
     }
 }

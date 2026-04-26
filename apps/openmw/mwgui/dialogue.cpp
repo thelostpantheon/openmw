@@ -356,6 +356,12 @@ namespace MWGui
     {
         // Centre dialog
         center();
+#ifdef __vita__
+        // Shift up so the window clears the contextual button bar at the bottom.
+        MyGUI::IntCoord coord = mMainWidget->getCoord();
+        coord.top = std::max(0, coord.top - 28);
+        mMainWidget->setCoord(coord);
+#endif
 
         mPersuasionDialog.setVisible(false);
 

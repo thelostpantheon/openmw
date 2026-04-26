@@ -3,6 +3,13 @@ set(OPENMW_SOURCES
     options.cpp
 )
 
+if(VITA)
+    list(APPEND OPENMW_SOURCES
+        vita/VitaInit.cpp
+        vita/VitaIme.cpp
+    )
+endif()
+
 set(OPENMW_RESOURCES
     ${CMAKE_SOURCE_DIR}/files/windows/openmw.rc
     ${CMAKE_SOURCE_DIR}/files/windows/openmw.exe.manifest
@@ -139,6 +146,40 @@ if (MSVC)
     )
 endif()
 
+if (VITA)
+    set_source_files_properties(
+        mwgui/console.cpp
+        mwgui/debugwindow.cpp
+        mwgui/settingswindow.cpp
+        mwgui/savegamedialog.cpp
+        mwgui/journalwindow.cpp
+        mwgui/journalbooks.cpp
+        mwgui/journalviewmodel.cpp
+        mwgui/charactercreation.cpp
+        mwgui/race.cpp
+        mwgui/class.cpp
+        mwgui/birth.cpp
+        mwgui/review.cpp
+        mwgui/levelupdialog.cpp
+        mwgui/spellcreationdialog.cpp
+        mwgui/enchantingdialog.cpp
+        mwgui/trainingwindow.cpp
+        mwgui/travelwindow.cpp
+        mwgui/merchantrepair.cpp
+        mwgui/repair.cpp
+        mwgui/recharge.cpp
+        mwgui/postprocessorhud.cpp
+        mwgui/textinput.cpp
+        mwgui/itemselection.cpp
+        mwgui/companionwindow.cpp
+        mwgui/soulgemdialog.cpp
+        mwgui/waitdialog.cpp
+        mwgui/jailscreen.cpp
+        PROPERTIES
+        COMPILE_FLAGS "-Os"
+    )
+endif()
+
 if(BUILD_OPENMW)
     if (ANDROID)
         add_library(openmw SHARED
@@ -159,6 +200,17 @@ if(BUILD_OPENMW)
     # NOTE: it's unclear whether the broken behavior is spec-compliant
     if (CMAKE_CXX_COMPILER_ID STREQUAL Clang)
         set_target_properties(openmw PROPERTIES ENABLE_EXPORTS ON)
+    endif()
+
+    # vita_create_self expects the ELF in CMAKE_CURRENT_BINARY_DIR
+    if (VITA)
+        set_target_properties(openmw PROPERTIES
+            RUNTIME_OUTPUT_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
+        )
+        # FFmpeg TX stubs in executable preempt libavutil.a (saves 16MB BSS).
+        target_sources(openmw PRIVATE
+            ${CMAKE_CURRENT_SOURCE_DIR}/vita/ffmpeg_tx_stubs.c
+        )
     endif()
 endif()
 
@@ -221,6 +273,43 @@ if (ANDROID)
     target_link_libraries(openmw-lib EGL android log z)
 endif (ANDROID)
 
+if (VITA)
+    # OSG libs excluded from USED_OSG_COMPONENTS but still needed for linking.
+    foreach(_osgextra osgParticle osgShadow)
+        if(NOT TARGET ${_osgextra})
+            add_library(${_osgextra} STATIC IMPORTED)
+            set_target_properties(${_osgextra} PROPERTIES
+                IMPORTED_LOCATION "${CMAKE_BINARY_DIR}/_deps/osg-build/lib/lib${_osgextra}.a")
+            add_dependencies(${_osgextra} osg)
+        endif()
+    endforeach()
+    target_link_libraries(openmw-lib osgParticle osgShadow)
+    # FFmpeg's libavcodec links libmp3lame for MP3 encoding support
+    target_link_libraries(openmw-lib mp3lame)
+    # Vita system libraries needed by vitaGL
+    target_link_libraries(openmw-lib
+        vitashark
+        mathneon
+        SceShaccCgExt
+        SceShaccCg_stub
+        SceKernelDmacMgr_stub
+        SceSblSsMgr_stub
+        taihen_stub
+        SceKernelModulemgr_stub
+        SceSysmem_stub
+        SceVshBridge_stub
+    )
+    # OpenAL audio backend needs SCE audio port functions
+    target_link_libraries(openmw-lib
+        SceAudio_stub
+    )
+    # dlopen/dlclose/dlsym stubs (osgDB::DynamicLibrary, LuaJIT)
+    target_link_libraries(openmw-lib dl)
+    # PTE (pthreads-to-eabi) — needed by OpenThreads for cleanup handlers
+    target_link_libraries(openmw-lib pthread)
+    # pthread_cancel=0 removed: broke real std::mutex init for game threads.
+endif()
+
 if (USE_SYSTEM_TINYXML)
     target_link_libraries(openmw-lib ${TinyXML_LIBRARIES})
 endif()
@@ -273,4 +362,72 @@ endif()
 
 if (WIN32 AND BUILD_OPENMW)
     INSTALL(TARGETS openmw RUNTIME DESTINATION ".")
+endif()
+
+if (VITA AND BUILD_OPENMW)
+    include("${VITASDK}/share/vita.cmake" REQUIRED)
+
+    if(NOT VITA_TITLEID)
+        set(VITA_TITLEID "OMWV00001")
+    endif()
+    if(NOT VITA_APP_NAME)
+        set(VITA_APP_NAME "OpenMW")
+    endif()
+
+    # Extra memory mode: +109MB RAM (Vita disables background services)
+    set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
+
+    # Fix ARM relocations and veneer literal pools BEFORE conversion.
+    add_custom_command(TARGET openmw POST_BUILD
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-relocations.py
+            ${CMAKE_CURRENT_BINARY_DIR}/openmw
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-veneers.py
+            ${CMAKE_CURRENT_BINARY_DIR}/openmw
+        COMMENT "Fixing ARM relocations and veneer literal pools"
+        VERBATIM
+    )
+
+    # Convert ELF to Vita SELF (eboot.bin)
+    vita_create_self(eboot.bin openmw
+        UNSAFE
+        NOASLR
+        ATTRIBUTE 0x02000000
+    )
+
+    # Zero BSS: Vita loader doesn't zero memsz > filesz gap.
+    add_custom_command(TARGET openmw-velf POST_BUILD
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-bss.py
+            ${CMAKE_CURRENT_BINARY_DIR}/openmw.velf
+        COMMENT "Expanding BSS in VELF (zeroing uninitialized data)"
+    )
+    # eboot.bin-self depends on openmw.velf (file), but file-level deps bypass
+    # POST_BUILD. Force target-level dep so fix-bss.py finishes before
+    # vita-make-fself reads the VELF. Without this, -jN causes a read race.
+    add_dependencies(eboot.bin-self openmw-velf)
+
+    # LiveArea assets
+    set(VITA_DATA_DIR ${CMAKE_SOURCE_DIR}/data/vita)
+
+    # Create VPK package
+    vita_create_vpk(openmw.vpk ${VITA_TITLEID} eboot.bin
+        VERSION 01.00
+        NAME ${VITA_APP_NAME}
+        FILE ${CMAKE_SOURCE_DIR}/apps/openmw/vita/openmw.cfg openmw.cfg
+        FILE ${CMAKE_BINARY_DIR}/defaults.bin defaults.bin
+        FILE ${CMAKE_SOURCE_DIR}/apps/openmw/vita/settings.cfg settings.cfg
+        FILE ${VITA_DATA_DIR}/sce_sys/icon0.png sce_sys/icon0.png
+        FILE ${VITA_DATA_DIR}/sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
+        FILE ${VITA_DATA_DIR}/sce_sys/livearea/contents/bg0.png sce_sys/livearea/contents/bg0.png
+        FILE ${VITA_DATA_DIR}/sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
+    )
+
+    # Inject ${CMAKE_BINARY_DIR}/resources (shaders, fonts, lua_api, vfs, ...)
+    # into the VPK. vita_create_vpk only packs explicit FILE entries; OSG/OpenMW
+    # needs the full resources tree or launch crashes with missing shader files.
+    add_custom_command(TARGET openmw.vpk-vpk POST_BUILD
+        COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/add-resources-to-vpk.py
+            ${CMAKE_CURRENT_BINARY_DIR}/openmw.vpk
+            ${CMAKE_BINARY_DIR}/resources
+        COMMENT "Adding resources/ directory to VPK"
+    )
 endif()

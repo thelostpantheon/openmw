@@ -8,6 +8,12 @@
 #include <stdexcept>
 #include <variant>
 
+#ifdef __vita__
+#include <atomic>
+#include <pthread.h>
+#include <psp2/kernel/threadmgr.h>
+#endif
+
 #include <BulletCollision/BroadphaseCollision/btDbvtBroadphase.h>
 #include <BulletCollision/CollisionShapes/btCollisionShape.h>
 #include <LinearMath/btThreads.h>
@@ -348,16 +354,28 @@ namespace MWPhysics
     public:
         void waitForWorkers()
         {
+#ifdef __vita__
+            // Vita: atomic poll avoids PTE condition_variable crash.
+            while (mFrameCounter.load(std::memory_order_acquire)
+                   != mWorkersFrameCounter.load(std::memory_order_acquire))
+                sceKernelDelayThread(50);
+#else
             std::unique_lock lock(mWorkersDoneMutex);
             if (mFrameCounter != mWorkersFrameCounter)
                 mWorkersDone.wait(lock);
+#endif
         }
 
         void wakeUpWorkers()
         {
+#ifdef __vita__
+            mFrameCounter.fetch_add(1, std::memory_order_release);
+            mHasJob.notify_all();
+#else
             const std::lock_guard lock(mHasJobMutex);
             ++mFrameCounter;
             mHasJob.notify_all();
+#endif
         }
 
         void stopWorkers()
@@ -369,9 +387,13 @@ namespace MWPhysics
 
         void workIsDone()
         {
+#ifdef __vita__
+            mWorkersFrameCounter.fetch_add(1, std::memory_order_release);
+#else
             const std::lock_guard lock(mWorkersDoneMutex);
             ++mWorkersFrameCounter;
             mWorkersDone.notify_all();
+#endif
         }
 
         template <class F>
@@ -381,21 +403,46 @@ namespace MWPhysics
             std::unique_lock lock(mHasJobMutex);
             while (!mShouldStop)
             {
+#ifdef __vita__
+                mHasJob.wait(lock, [&] {
+                    return mShouldStop
+                        || mFrameCounter.load(std::memory_order_acquire) != lastFrame;
+                });
+                lastFrame = mFrameCounter.load(std::memory_order_acquire);
+#else
                 mHasJob.wait(lock, [&] { return mShouldStop || mFrameCounter != lastFrame; });
                 lastFrame = mFrameCounter;
+#endif
                 lock.unlock();
+#ifdef __vita__
+                try { f(); }
+                catch (const std::exception& e)
+                {
+                    Log(Debug::Error) << "Physics worker exception: " << e.what();
+                }
+                catch (...) { Log(Debug::Error) << "Physics worker: unknown exception"; }
+#else
                 f();
+#endif
                 lock.lock();
             }
         }
 
     private:
+#ifdef __vita__
+        std::atomic<std::size_t> mWorkersFrameCounter{0};
+#else
         std::size_t mWorkersFrameCounter = 0;
+#endif
         std::condition_variable mWorkersDone;
         std::mutex mWorkersDoneMutex;
         std::condition_variable mHasJob;
         bool mShouldStop = false;
+#ifdef __vita__
+        std::atomic<std::size_t> mFrameCounter{0};
+#else
         std::size_t mFrameCounter = 0;
+#endif
         std::mutex mHasJobMutex;
     };
 
@@ -429,8 +476,27 @@ namespace MWPhysics
         if (mNumThreads >= 1)
         {
             Log(Debug::Info) << "Using " << mNumThreads << " async physics threads";
+#ifdef __vita__
+            // Bullet's GJK/EPA solver uses ~30KB+ stack per call frame.
+            // Default pthread stack on Vita overflows. Use 512KB.
+            for (unsigned i = 0; i < mNumThreads; ++i)
+            {
+                pthread_t tid;
+                pthread_attr_t attr;
+                pthread_attr_init(&attr);
+                pthread_attr_setstacksize(&attr, 512 * 1024);
+                auto* self = this;
+                pthread_create(&tid, &attr, [](void* arg) -> void* {
+                    static_cast<PhysicsTaskScheduler*>(arg)->worker();
+                    return nullptr;
+                }, self);
+                pthread_attr_destroy(&attr);
+                mThreads.push_back(tid);
+            }
+#else
             for (unsigned i = 0; i < mNumThreads; ++i)
                 mThreads.emplace_back([&] { worker(); });
+#endif
         }
         else
         {
@@ -454,8 +520,13 @@ namespace MWPhysics
         }
         if (mWorkersSync != nullptr)
             mWorkersSync->stopWorkers();
+#ifdef __vita__
+        for (auto& tid : mThreads)
+            pthread_join(tid, nullptr);
+#else
         for (auto& thread : mThreads)
             thread.join();
+#endif
     }
 
     std::tuple<unsigned, float> PhysicsTaskScheduler::calculateStepConfig(float timeAccum) const

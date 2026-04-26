@@ -10,6 +10,10 @@
 #include <thread>
 #include <unordered_set>
 
+#ifdef __vita__
+#include <pthread.h>
+#endif
+
 #include <BulletCollision/CollisionDispatch/btCollisionWorld.h>
 
 #include <osg/Timer>
@@ -116,7 +120,11 @@ namespace MWPhysics
         bool mAdvanceSimulation;
         std::atomic<int> mNextJob;
         std::atomic<int> mNextLOS;
+#ifdef __vita__
+        std::vector<pthread_t> mThreads;
+#else
         std::vector<std::thread> mThreads;
+#endif
 
         mutable std::shared_mutex mSimulationMutex;
         mutable std::shared_mutex mCollisionWorldMutex;

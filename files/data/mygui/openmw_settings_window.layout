@@ -269,7 +269,7 @@
                     </Widget>
                 </Widget>
             </Widget>
-            <Widget type="TabItem">
+            <Widget type="TabItem" name="VideoSettingsTab">
                 <Property key="Caption" value=" #{OMWEngine:Video} "/>
                 <Widget type="TabControl" skin="TabControlInner" position="4 4 352 390" align="Stretch">
                     <Property key="ButtonAutoWidth" value="true"/>
@@ -425,17 +425,17 @@
                             <UserString key="SettingLabelWidget" value="RenderDistanceLabel"/>
                             <UserString key="SettingLabelCaption" value="ViewDistanceValueCells"/>
                         </Widget>
-                        <Widget type="TextBox" skin="SandText" position="0 148 352 18" align="Left Top">
+                        <Widget type="TextBox" skin="SandText" position="0 148 352 18" align="Left Top" name="RenderDistanceLowLabel">
                             <Property key="Caption" value="#{OMWEngine:DistanceLow}"/>
                             <Property key="TextAlign" value="Left"/>
                         </Widget>
-                        <Widget type="TextBox" skin="SandText" position="0 148 352 18" align="Right Top">
+                        <Widget type="TextBox" skin="SandText" position="0 148 352 18" align="Right Top" name="RenderDistanceHighLabel">
                             <Property key="Caption" value="#{OMWEngine:DistanceHigh}"/>
                             <Property key="TextAlign" value="Right"/>
                         </Widget>
 
                     </Widget>
-                    <Widget type="TabItem">
+                    <Widget type="TabItem" name="WaterSettingsTab">
                         <Property key="Caption" value=" #{OMWEngine:Water} "/>
 
                         <Widget type="VBox" position_real="0 0 1 1" align="Stretch">
@@ -790,6 +790,106 @@
                     </Widget>
                     <Widget type="AutoSizedTextBox" skin="SandText">
                         <Property key="Caption" value="#{OMWEngine:GmstOverridesL10n} "/>
+                    </Widget>
+                </Widget>
+            </Widget>
+            <Widget type="TabItem">
+                <Property key="Caption" value=" Vita "/>
+                <!-- Dynamic Fog: auto-adjusts view distance to maintain FPS -->
+                <Widget type="Widget" position="4 4 352 22" align="Left Top HStretch">
+                    <Widget type="AutoSizedButton" skin="MW_Button" position="0 0 50 22" align="Left Top" name="VitaDynamicFogButton">
+                        <UserString key="SettingCategory" value="Camera"/>
+                        <UserString key="SettingName" value="vita dynamic fog"/>
+                        <UserString key="SettingType" value="CheckButton"/>
+                    </Widget>
+                    <Widget type="TextBox" skin="NormalText" position="56 3 296 18" align="Left Top">
+                        <Property key="Caption" value="Dynamic Fog (Auto FPS)"/>
+                    </Widget>
+                </Widget>
+                <!-- Dynamic Fog Target FPS: the controller shrinks view distance below target and grows above -->
+                <Widget type="Widget" position="4 30 352 32" align="Left Top HStretch" name="VitaDynFogTargetFpsRow">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top">
+                        <Property key="Caption" value="Dynamic Fog Target FPS"/>
+                    </Widget>
+                    <Widget type="ComboBox" skin="MW_ComboBox" position="0 16 200 24" align="Left Top" name="VitaDynFogTargetFpsList">
+                        <Property key="AddItem" value="15 (Max Distance)"/>
+                        <Property key="AddItem" value="18 (Long Distance)"/>
+                        <Property key="AddItem" value="20 (Balanced)"/>
+                    </Widget>
+                </Widget>
+                <!-- Dynamic Fog Aggression: how hard the controller shrinks fog when fps lags target -->
+                <Widget type="Widget" position="4 66 352 32" align="Left Top HStretch" name="VitaDynFogAggressionRow">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top">
+                        <Property key="Caption" value="Dynamic Fog Aggression"/>
+                    </Widget>
+                    <Widget type="ComboBox" skin="MW_ComboBox" position="0 16 200 24" align="Left Top" name="VitaDynFogAggressionList">
+                        <Property key="AddItem" value="Normal"/>
+                        <Property key="AddItem" value="Aggressive"/>
+                        <Property key="AddItem" value="Very Aggressive"/>
+                    </Widget>
+                </Widget>
+                <!-- View Distance -->
+                <Widget type="Widget" position="4 102 352 32" align="Left Top HStretch" name="VitaViewDistRow">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaViewDistText">
+                        <Property key="Caption" value="View Distance"/>
+                    </Widget>
+                    <Widget type="ScrollBar" skin="MW_HScroll" position="0 16 352 14" align="Left Top HStretch" name="VitaViewDistSlider">
+                        <Property key="Range" value="4501"/>
+                        <Property key="Page" value="100"/>
+                        <UserString key="SettingType" value="Slider"/>
+                        <UserString key="SettingCategory" value="Camera"/>
+                        <UserString key="SettingName" value="viewing distance"/>
+                        <UserString key="SettingValueType" value="Float"/>
+                        <UserString key="SettingMin" value="500"/>
+                        <UserString key="SettingMax" value="5000"/>
+                        <UserString key="SettingLabelWidget" value="VitaViewDistText"/>
+                        <UserString key="SettingLabelCaption" value="VitaViewDistValue"/>
+                    </Widget>
+                </Widget>
+                <!-- Field of View -->
+                <Widget type="Widget" position="4 138 352 32" align="Left Top HStretch">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaFovText">
+                        <Property key="Caption" value="Field of View"/>
+                    </Widget>
+                    <Widget type="ScrollBar" skin="MW_HScroll" position="0 16 352 14" align="Left Top HStretch">
+                        <Property key="Range" value="61"/>
+                        <Property key="Page" value="1"/>
+                        <UserString key="SettingType" value="Slider"/>
+                        <UserString key="SettingCategory" value="Camera"/>
+                        <UserString key="SettingName" value="field of view"/>
+                        <UserString key="SettingValueType" value="Float"/>
+                        <UserString key="SettingMin" value="30"/>
+                        <UserString key="SettingMax" value="90"/>
+                        <UserString key="SettingLabelWidget" value="VitaFovText"/>
+                        <UserString key="SettingLabelCaption" value="VitaFovValue"/>
+                    </Widget>
+                </Widget>
+                <!-- Font Size -->
+                <Widget type="Widget" position="4 174 352 32" align="Left Top HStretch">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top" name="VitaFontText">
+                        <Property key="Caption" value="Font Size"/>
+                    </Widget>
+                    <Widget type="ScrollBar" skin="MW_HScroll" position="0 16 352 14" align="Left Top HStretch">
+                        <Property key="Range" value="11"/>
+                        <Property key="Page" value="1"/>
+                        <UserString key="SettingType" value="Slider"/>
+                        <UserString key="SettingCategory" value="GUI"/>
+                        <UserString key="SettingName" value="font size"/>
+                        <UserString key="SettingValueType" value="Integer"/>
+                        <UserString key="SettingMin" value="12"/>
+                        <UserString key="SettingMax" value="22"/>
+                        <UserString key="SettingLabelWidget" value="VitaFontText"/>
+                        <UserString key="SettingLabelCaption" value="VitaFontValue"/>
+                    </Widget>
+                </Widget>
+                <!-- Preload Cell Cache -->
+                <Widget type="Widget" position="4 210 352 32" align="Left Top HStretch" name="VitaCellCacheRow">
+                    <Widget type="TextBox" skin="NormalText" position="0 0 352 16" align="Left Top">
+                        <Property key="Caption" value="Preload Cell Cache"/>
+                    </Widget>
+                    <Widget type="ComboBox" skin="MW_ComboBox" position="0 16 200 24" align="Left Top" name="VitaCellCacheList">
+                        <Property key="AddItem" value="1 (Default)"/>
+                        <Property key="AddItem" value="2 (More Cells)"/>
                     </Widget>
                 </Widget>
             </Widget>

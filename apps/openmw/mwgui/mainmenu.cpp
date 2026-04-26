@@ -101,11 +101,19 @@ namespace MWGui
         , mBackground(nullptr)
     {
         getWidget(mVersionText, "VersionText");
+#ifdef __vita__
+        mVersionText->setCaption(versionDescription + "\n#{FFDD44}Hold SELECT at boot to rescan mods");
+#else
         mVersionText->setCaption(versionDescription);
+#endif
 
         constexpr VFS::Path::NormalizedView menuBackgroundVideo("video/menu_background.bik");
 
+#ifdef __vita__
+        mHasAnimatedMenu = false; // Video playback disabled on Vita for now
+#else
         mHasAnimatedMenu = mVFS->exists(menuBackgroundVideo);
+#endif
         mDisableGamepadCursor = Settings::gui().mControllerMenus;
 
         updateMenu();

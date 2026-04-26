@@ -14,6 +14,10 @@
 #include <components/shader/shadermanager.hpp>
 #include <components/stereo/stereomanager.hpp>
 
+#ifdef __vita__
+#include <components/vita/VitaShader.h>
+#endif
+
 #include <mutex>
 
 namespace
@@ -311,6 +315,7 @@ namespace Terrain
             }
             else
             {
+#ifndef __vita__
                 // Add the actual layer texture
                 osg::ref_ptr<osg::Texture2D> tex = it->mDiffuseMap;
                 stateset->setTextureAttributeAndModes(0, tex.get());
@@ -333,10 +338,79 @@ namespace Terrain
                         stateset->setTextureAttributeAndModes(1, BlendmapTexMat::value(blendmapScale));
                     stateset->setTextureAttributeAndModes(1, TexEnvCombine::value(), osg::StateAttribute::ON);
                 }
+#endif
             }
+
+#ifndef __vita__
+            passes.push_back(stateset);
+#endif
+        }
+
+#ifdef __vita__
+        // Single-pass terrain: pack up to 4 layers into one draw call.
+        // Layout: units 0-3 = diffuse layers, units 4-6 = blendmaps for layers 1-3.
+        {
+            osg::ref_ptr<osg::StateSet> stateset(new osg::StateSet);
+
+            int numLayers = std::min(static_cast<int>(layers.size()), 4);
+
+            stateset->setAttributeAndModes(Vita::createVitaTerrainMultiProgram(),
+                osg::StateAttribute::ON);
+            // Group VitaTerrainMulti draws together to minimize SGX543 program switches.
+            // Bin must be < FirstPerson (12) so depth-tests correctly with hands/weapon.
+            stateset->setRenderBinDetails(2, "RenderBin");
+            stateset->addUniform(new osg::Uniform("u_numLayers", numLayers));
+            stateset->addUniform(new osg::Uniform("colorMode", 2));
+            stateset->addUniform(new osg::Uniform("alphaRef", 0.0f));
+            stateset->addUniform(new osg::Uniform("u_materialDiffuse", osg::Vec4f(1, 1, 1, 1)));
+            stateset->addUniform(new osg::Uniform("u_materialAmbient", osg::Vec4f(1, 1, 1, 1)));
+            stateset->addUniform(new osg::Uniform("u_materialEmission", osg::Vec4f(0, 0, 0, 1)));
+
+            if (layerTileSize != 1.f)
+                stateset->addUniform(new osg::Uniform("u_texMat0",
+                    osg::Matrixf::scale(osg::Vec3f(layerTileSize, layerTileSize, 1.f))));
+            else
+                stateset->addUniform(new osg::Uniform("u_texMat0", osg::Matrixf::identity()));
+
+            if (!blendmaps.empty())
+                stateset->addUniform(new osg::Uniform("u_texMat1",
+                    BlendmapTexMat::value(blendmapScale)->getMatrix()));
+            else
+                stateset->addUniform(new osg::Uniform("u_texMat1", osg::Matrixf::identity()));
+
+            // Bind layer sampler uniforms
+            stateset->addUniform(new osg::Uniform("u_layer0", 0));
+            stateset->addUniform(new osg::Uniform("u_layer1", 1));
+            stateset->addUniform(new osg::Uniform("u_layer2", 2));
+            stateset->addUniform(new osg::Uniform("u_layer3", 3));
+            stateset->addUniform(new osg::Uniform("u_blend1", 4));
+            stateset->addUniform(new osg::Uniform("u_blend2", 5));
+            stateset->addUniform(new osg::Uniform("u_blend3", 6));
+
+            // Bind diffuse textures to units 0-3
+            for (int i = 0; i < numLayers; ++i)
+                stateset->setTextureAttributeAndModes(i, layers[i].mDiffuseMap);
+
+            // Bind blendmaps to units 4-6 (for layers 1, 2, 3)
+            // blendmaps[0] is for layer 0 (all-white base, unused), blendmaps[1+] for subsequent layers
+            for (int i = 1; i < numLayers && !blendmaps.empty(); ++i)
+            {
+                if (static_cast<size_t>(i) < blendmaps.size())
+                {
+                    stateset->setTextureAttributeAndModes(3 + i, blendmaps[i].get());
+                    if (!esm4terrain)
+                        stateset->setTextureAttributeAndModes(3 + i, BlendmapTexMat::value(blendmapScale));
+                }
+            }
+
+            // Blending not needed — single pass composites everything
+            stateset->setMode(GL_BLEND, osg::StateAttribute::OFF);
+            stateset->setAttributeAndModes(LequalDepth::value(), osg::StateAttribute::ON);
 
             passes.push_back(stateset);
         }
+#endif
+
         return passes;
     }
 

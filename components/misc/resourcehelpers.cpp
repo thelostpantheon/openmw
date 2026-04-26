@@ -289,7 +289,11 @@ VFS::Path::Normalized Misc::ResourceHelpers::getLODMeshName(
     {
         std::stringstream patern;
         patern << distantMeshPattern << "_" << l;
+#ifdef __vita__
+        const VFS::Path::Normalized meshName = getBestLODMeshName(resPath, vfs, patern.str());
+#else
         const VFS::Path::Normalized meshName = getBestLODMeshName(resPath, vfs, patern.view());
+#endif
         if (meshName != resPath)
             return meshName;
     }

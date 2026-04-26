@@ -2051,6 +2051,28 @@ namespace NifOsg
             }
 
             image->setMipmapLevels(mipmapOffsets);
+
+#ifdef __vita__
+            // vitaGL's compressed-texture support is partial; DXT internal
+            // textures render as garbage. Decompress to RGBA on CPU.
+            // Must run BEFORE flipVertical — OSG's flipVertical for compressed
+            // DXT only reorders blocks, leaving getColor() with scrambled pixel
+            // data per block (caused alpha-tested tree leaves to lose their
+            // cutout shape and discard most pixels).
+            if (image->isCompressed())
+            {
+                osg::ref_ptr<osg::Image> rgbaImage = new osg::Image;
+                rgbaImage->setFileName(image->getFileName());
+                GLenum outFmt = image->isImageTranslucent() ? GL_RGBA : GL_RGB;
+                rgbaImage->allocateImage(image->s(), image->t(), image->r(), outFmt, GL_UNSIGNED_BYTE);
+                for (int s = 0; s < image->s(); ++s)
+                    for (int t = 0; t < image->t(); ++t)
+                        for (int r = 0; r < image->r(); ++r)
+                            rgbaImage->setColor(image->getColor(s, t, r), s, t, r);
+                image = rgbaImage;
+            }
+#endif
+
             image->flipVertical();
 
             return image;

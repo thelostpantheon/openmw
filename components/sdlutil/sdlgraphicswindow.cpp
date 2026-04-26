@@ -2,6 +2,10 @@
 
 #include <SDL_video.h>
 
+#ifdef __vita__
+#include <vitaGL.h>
+#endif
+
 #ifdef OPENMW_GL4ES_MANUAL_INIT
 #include "gl4esinit.h"
 #endif
@@ -56,6 +60,10 @@ namespace SDLUtil
         if (!mWindow)
             return false;
 
+#ifdef __vita__
+        // Fixed resolution on Vita
+        (void)x; (void)y; (void)width; (void)height;
+#else
         int w, h;
         SDL_GetWindowSize(mWindow, &w, &h);
         int dw, dh;
@@ -63,6 +71,7 @@ namespace SDLUtil
 
         SDL_SetWindowPosition(mWindow, x, y);
         SDL_SetWindowSize(mWindow, width / (dw / w), height / (dh / h));
+#endif
         return true;
     }
 
@@ -98,6 +107,28 @@ namespace SDLUtil
             return;
         }
 
+#ifdef __vita__
+        // vitaGL is initialized in Vita::initialize() before SDL_Init.
+        glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        vglSwapBuffers(GL_FALSE);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        vglSwapBuffers(GL_FALSE);
+        glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+        vglSwapBuffers(GL_FALSE);
+
+        _traits->width = 640;
+        _traits->height = 368;
+        _traits->red = 8;
+        _traits->green = 8;
+        _traits->blue = 8;
+        _traits->alpha = 8;
+        _traits->depth = 32;
+        _traits->stencil = 8;
+        _traits->doubleBuffer = true;
+        _traits->sampleBuffers = 0;
+        _traits->samples = 0;
+#else
         // SDL will change the current context when it creates a new one, so we
         // have to get the current one to be able to restore it afterward.
         SDL_Window* oldWin = SDL_GL_GetCurrentWindow();
@@ -161,6 +192,7 @@ namespace SDLUtil
         _traits->samples = intermediateLocation;
 
         SDL_GL_MakeCurrent(oldWin, oldCtx);
+#endif // !__vita__
 
         mValid = true;
 
@@ -197,7 +229,11 @@ namespace SDLUtil
             return false;
         }
 
+#ifdef __vita__
+        return true;
+#else
         return SDL_GL_MakeCurrent(mWindow, mContext) == 0;
+#endif
     }
 
     bool GraphicsWindowSDL2::releaseContextImplementation()
@@ -208,13 +244,19 @@ namespace SDLUtil
             return false;
         }
 
+#ifdef __vita__
+        return true;
+#else
         return SDL_GL_MakeCurrent(nullptr, nullptr) == 0;
+#endif
     }
 
     void GraphicsWindowSDL2::closeImplementation()
     {
+#ifndef __vita__
         if (mContext)
             SDL_GL_DeleteContext(mContext);
+#endif
         mContext = nullptr;
 
         if (mWindow && mOwnsWindow)
@@ -230,7 +272,11 @@ namespace SDLUtil
         if (!mRealized)
             return;
 
+#ifdef __vita__
+        vglSwapBuffers(GL_FALSE);
+#else
         SDL_GL_SwapWindow(mWindow);
+#endif
     }
 
     void GraphicsWindowSDL2::setSyncToVBlank(bool on)
@@ -241,6 +287,7 @@ namespace SDLUtil
 
     void GraphicsWindowSDL2::setSyncToVBlank(VSyncMode mode)
     {
+#ifndef __vita__
         SDL_Window* oldWin = SDL_GL_GetCurrentWindow();
         SDL_GLContext oldCtx = SDL_GL_GetCurrentContext();
 
@@ -249,12 +296,19 @@ namespace SDLUtil
         setSwapInterval(mode);
 
         SDL_GL_MakeCurrent(oldWin, oldCtx);
+#else
+        setSwapInterval(mode);
+#endif
     }
 
     void GraphicsWindowSDL2::setSwapInterval(VSyncMode mode)
     {
         mVSyncMode = mode;
 
+#ifdef __vita__
+        // vitaGL handles vsync via vglSwapBuffers parameter
+        (void)mode;
+#else
         if (mode == VSyncMode::Adaptive)
         {
             if (SDL_GL_SetSwapInterval(-1) == -1)
@@ -275,6 +329,7 @@ namespace SDLUtil
         {
             SDL_GL_SetSwapInterval(0);
         }
+#endif
     }
 
     void GraphicsWindowSDL2::raiseWindow()

@@ -68,6 +68,10 @@ namespace MWInput
         bool mGuiCursorEnabled;
         bool mJoystickLastUsed;
         bool mGamepadMousePressed;
+#ifdef __vita__
+        bool mSelectHeld = false;
+        bool mSelectUsedAsModifier = false;
+#endif
     };
 }
 #endif

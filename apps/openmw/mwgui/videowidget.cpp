@@ -31,7 +31,11 @@ namespace MWGui
 
     void VideoWidget::playVideo(const std::string& video)
     {
+#ifndef __vita__
+        // Vita: ffmpeg's binkaudio_rdft avcodec_open2 returns -1 for Morrowind's .bik files
+        // and gives no log output. Skip audio to let the video play silently.
         mPlayer->setAudioFactory(new MWSound::MovieAudioFactory());
+#endif
 
         Files::IStreamPtr videoStream;
         try

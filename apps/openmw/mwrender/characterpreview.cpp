@@ -21,6 +21,9 @@
 #include <components/resource/scenemanager.hpp>
 #include <components/sceneutil/depth.hpp>
 #include <components/sceneutil/lightmanager.hpp>
+#ifdef __vita__
+#include <components/vita/VitaShader.h>
+#endif
 #include <components/sceneutil/nodecallback.hpp>
 #include <components/sceneutil/rtt.hpp>
 #include <components/sceneutil/shadow.hpp>
@@ -154,8 +157,13 @@ namespace MWRender
 
     public:
         CharacterPreviewRTTNode(uint32_t sizeX, uint32_t sizeY)
+#ifdef __vita__
+            : RTTNode(sizeX, sizeY, 0, false, 0,
+                StereoAwareness::Unaware_MultiViewShaders, false)
+#else
             : RTTNode(sizeX, sizeY, Settings::video().mAntialiasing, false, 0,
                 StereoAwareness::Unaware_MultiViewShaders, shouldAddMSAAIntermediateTarget())
+#endif
             , mAspectRatio(static_cast<float>(sizeX) / static_cast<float>(sizeY))
         {
             if (SceneUtil::AutoDepth::isReversed())
@@ -166,16 +174,28 @@ namespace MWRender
             mGroup->getOrCreateStateSet()->addUniform(new osg::Uniform("projectionMatrix", mPerspectiveMatrix));
             mViewMatrix = osg::Matrixf::identity();
             setColorBufferInternalFormat(GL_RGBA);
+#ifndef __vita__
+            // vitaGL's FBO completeness is format-fragile; stick with the main-scene depth default.
             setDepthBufferInternalFormat(GL_DEPTH24_STENCIL8);
+#endif
         }
 
         void setDefaults(osg::Camera* camera) override
         {
             camera->setName("CharacterPreview");
             camera->setReferenceFrame(osg::Camera::ABSOLUTE_RF);
+#ifdef __vita__
+            camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT);
+            // renderbuffers so the FBO stays complete (hidden depth is provided automatically).
+            camera->setImplicitBufferAttachmentMask(
+                osg::Camera::IMPLICIT_COLOR_BUFFER_ATTACHMENT,
+                osg::Camera::IMPLICIT_COLOR_BUFFER_ATTACHMENT);
+            camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+#else
             camera->setRenderTargetImplementation(osg::Camera::FRAME_BUFFER_OBJECT, osg::Camera::PIXEL_BUFFER_RTT);
-            camera->setClearColor(osg::Vec4(0.f, 0.f, 0.f, 0.f));
             camera->setClearMask(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
+#endif
+            camera->setClearColor(osg::Vec4(0.f, 0.f, 0.f, 0.f));
             camera->setProjectionMatrixAsPerspective(fovYDegrees, mAspectRatio, znear, zfar);
             camera->setViewport(0, 0, width(), height());
             camera->setRenderOrder(osg::Camera::PRE_RENDER);
@@ -236,6 +256,10 @@ namespace MWRender
         });
         lightManager->setStartLight(1);
         osg::ref_ptr<osg::StateSet> stateset = lightManager->getOrCreateStateSet();
+#ifdef __vita__
+        // VitaLit uniforms: preview has its own subtree, doesn't inherit sceneRoot's.
+        Vita::setupSceneUniforms(stateset);
+#endif
         stateset->setDefine("FORCE_OPAQUE", "1", osg::StateAttribute::ON);
         stateset->setMode(GL_LIGHTING, osg::StateAttribute::ON);
         stateset->setMode(GL_NORMALIZE, osg::StateAttribute::ON);
@@ -317,6 +341,12 @@ namespace MWRender
         light->setQuadraticAttenuation(0.f);
         lightManager->setSunlight(light);
 
+#ifdef __vita__
+        Vita::updateSceneUniforms(stateset, osg::Vec3f(positionX, positionY, positionZ),
+            osg::Vec3f(diffuseR, diffuseG, diffuseB), osg::Vec3f(ambientR, ambientG, ambientB),
+            0.f, 10000000.f, osg::Vec4f(0.f, 0.f, 0.f, 1.f));
+#endif
+
         osg::ref_ptr<osg::LightSource> lightSource = new osg::LightSource;
         lightSource->setLight(light);
 
@@ -390,7 +420,12 @@ namespace MWRender
 
     InventoryPreview::InventoryPreview(
         osg::Group* parent, Resource::ResourceSystem* resourceSystem, const MWWorld::Ptr& character)
+#ifdef __vita__
+        // Portrait aspect (128x256 = 1:2) matches the camera fovY assumption used by the desktop 512x1024.
+        : CharacterPreview(parent, resourceSystem, character, 128, 256, osg::Vec3f(0, 700, 71), osg::Vec3f(0, 0, 71))
+#else
         : CharacterPreview(parent, resourceSystem, character, 512, 1024, osg::Vec3f(0, 700, 71), osg::Vec3f(0, 0, 71))
+#endif
     {
     }
 
@@ -530,7 +565,11 @@ namespace MWRender
 
     RaceSelectionPreview::RaceSelectionPreview(osg::Group* parent, Resource::ResourceSystem* resourceSystem)
         : CharacterPreview(
+#ifdef __vita__
+            parent, resourceSystem, MWMechanics::getPlayer(), 128, 128, osg::Vec3f(0, 125, 8), osg::Vec3f(0, 0, 8))
+#else
             parent, resourceSystem, MWMechanics::getPlayer(), 512, 512, osg::Vec3f(0, 125, 8), osg::Vec3f(0, 0, 8))
+#endif
         , mBase(*mCharacter.get<ESM::NPC>()->mBase)
         , mRef(ESM::makeBlankCellRef(), &mBase)
         , mPitchRadians(osg::DegreesToRadians(6.f))

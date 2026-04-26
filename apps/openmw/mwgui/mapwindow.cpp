@@ -1334,14 +1334,30 @@ namespace MWGui
     {
         if (!mGlobalMapTexture.get())
         {
-            mGlobalMapTexture = std::make_unique<MyGUIPlatform::OSGTexture>(mGlobalMapRender->getBaseTexture());
+            osg::ref_ptr<osg::Texture2D> baseTex = mGlobalMapRender->getBaseTexture();
+            if (!baseTex)
+            {
+#ifdef __vita__
+                // Lazy render on first map open — deferred from initUI to save ~5MB during gameplay
+                mGlobalMapRender->render();
+                resizeGlobalMap();
+                baseTex = mGlobalMapRender->getBaseTexture();
+                if (!baseTex)
+#endif
+                    return;
+            }
+
+            mGlobalMapTexture = std::make_unique<MyGUIPlatform::OSGTexture>(baseTex);
             mGlobalMapImage->setRenderItemTexture(mGlobalMapTexture.get());
             mGlobalMapImage->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
 
-            mGlobalMapOverlayTexture
-                = std::make_unique<MyGUIPlatform::OSGTexture>(mGlobalMapRender->getOverlayTexture());
-            mGlobalMapOverlay->setRenderItemTexture(mGlobalMapOverlayTexture.get());
-            mGlobalMapOverlay->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
+            osg::ref_ptr<osg::Texture2D> overlayTex = mGlobalMapRender->getOverlayTexture();
+            if (overlayTex)
+            {
+                mGlobalMapOverlayTexture = std::make_unique<MyGUIPlatform::OSGTexture>(overlayTex);
+                mGlobalMapOverlay->setRenderItemTexture(mGlobalMapOverlayTexture.get());
+                mGlobalMapOverlay->getSubWidgetMain()->_setUVSet(MyGUI::FloatRect(0.f, 0.f, 1.f, 1.f));
+            }
 
             // Redraw children in proper order
             mGlobalMap->getParent()->_updateChilds();

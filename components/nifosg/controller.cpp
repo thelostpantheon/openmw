@@ -311,6 +311,12 @@ namespace NifOsg
         osg::ref_ptr<osg::TexMat> texMat(new osg::TexMat);
         for (unsigned int unit : mTextureUnits)
             stateset->setTextureAttributeAndModes(unit, texMat, osg::StateAttribute::ON);
+#ifdef __vita__
+        // Mirror to a uniform — our custom VitaLit shader path doesn't read
+        // OSG's TexMat StateAttribute (that's FFP-only). Required for animated
+        // UV scrolling on waterfalls and similar.
+        stateset->addUniform(new osg::Uniform("u_texMat0", osg::Matrixf::identity()));
+#endif
     }
 
     void UVController::apply(osg::StateSet* stateset, osg::NodeVisitor* nv)
@@ -338,6 +344,12 @@ namespace NifOsg
                     stateset->getTextureAttribute(*mTextureUnits.begin(), osg::StateAttribute::TEXMAT));
                 texMat->setMatrix(mat);
             }
+#ifdef __vita__
+            // Push the same matrix into VitaLit's u_texMat0 uniform so our
+            // custom shader picks up the animated UV transform.
+            if (osg::Uniform* u = stateset->getUniform("u_texMat0"))
+                u->set(osg::Matrixf(mat));
+#endif
         }
     }
 

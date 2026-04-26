@@ -6,6 +6,8 @@
 #include <SDL_events.h>
 #include <SDL_version.h>
 
+#include <functional>
+
 #include "events.hpp"
 
 namespace osgViewer
@@ -81,6 +83,18 @@ namespace SDLUtil
 
         Uint16 mScaleX;
         Uint16 mScaleY;
+
+#ifdef __vita__
+        bool mTouchZoneLeft = false;   // top-left touch zone active
+        bool mTouchZoneRight = false;  // top-right touch zone active
+        // Touch drives the MyGUI cursor only when this returns true (GUI mode).
+        std::function<bool()> mTouchCursorEnabled;
+        SDL_FingerID mCursorFingerId = 0;
+        bool mCursorFingerActive = false;
+    public:
+        void setTouchCursorEnabledPredicate(std::function<bool()> pred) { mTouchCursorEnabled = std::move(pred); }
+    private:
+#endif
     };
 
 }

@@ -101,6 +101,22 @@ namespace MWGui
         void onWindowModeChanged(MyGUI::ComboBox* sender, size_t pos);
         void onVSyncModeChanged(MyGUI::ComboBox* sender, size_t pos);
 
+#ifdef __vita__
+        // Hide view-distance slider row while dynamic fog drives it.
+        void updateVitaViewDistVisibility();
+        // Hide controls that can't work or cause issues on Vita.
+        void hideIrrelevantVitaWidgets();
+        // Target-fps dropdown (3 discrete options: 15/18/20)
+        MyGUI::ComboBox* mVitaDynFogTargetFpsList = nullptr;
+        void onVitaDynFogTargetFpsChanged(MyGUI::ComboBox* sender, size_t pos);
+        // Fog aggression dropdown (Normal/Aggressive/Very Aggressive)
+        MyGUI::ComboBox* mVitaDynFogAggressionList = nullptr;
+        void onVitaDynFogAggressionChanged(MyGUI::ComboBox* sender, size_t pos);
+        // Preload cell cache size (1/2/3)
+        MyGUI::ComboBox* mVitaCellCacheList = nullptr;
+        void onVitaCellCacheChanged(MyGUI::ComboBox* sender, size_t pos);
+#endif
+
         void onRebindAction(MyGUI::Widget* sender);
         void onInputTabMouseWheel(MyGUI::Widget* sender, int rel);
         void onResetDefaultBindings(MyGUI::Widget* sender);

@@ -242,8 +242,11 @@ namespace SceneUtil
 
                 if (camera->getBufferAttachmentMap().count(osg::Camera::PACKED_DEPTH_STENCIL_BUFFER) == 0)
                 {
+#ifndef __vita__
+                    // vitaGL rejects non-color FBO attachments; it uses a hidden depth buffer.
                     vdd->mDepthTexture = createTexture(mDepthBufferInternalFormat);
                     camera->attach(osg::Camera::PACKED_DEPTH_STENCIL_BUFFER, vdd->mDepthTexture, 0, 0, false, mSamples);
+#endif
                 }
             }
 

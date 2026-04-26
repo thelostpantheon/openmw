@@ -17,6 +17,10 @@
 #include "npcanimation.hpp"
 #include "vismask.hpp"
 
+#ifdef __vita__
+#include "../vita/VitaInit.h"
+#endif
+
 namespace MWRender
 {
 
@@ -88,7 +92,23 @@ namespace MWRender
         osg::ref_ptr<ObjectAnimation> anim(
             new ObjectAnimation(ptr, animationMesh, mResourceSystem, animated, allowLight));
 
-        mObjects.emplace(ptr.mRef, std::move(anim));
+        auto result = mObjects.emplace(ptr.mRef, std::move(anim));
+#ifdef __vita__
+        {
+            std::string id = ptr.getCellRef().getRefId().toDebugString();
+            if (id.find("chargen") != std::string::npos || id.find("statssheet") != std::string::npos)
+            {
+                auto* base = ptr.getRefData().getBaseNode();
+                unsigned int numParents = base ? base->getNumParents() : 0;
+                const char* parentName = (base && numParents > 0) ? base->getParent(0)->getName().c_str() : "none";
+                unsigned int cellChildren = (base && numParents > 0) ? base->getParent(0)->getNumChildren() : 0;
+                char buf[256];
+                snprintf(buf, sizeof(buf), "Objects::insertModel(%s) emplaced=%d base=%p par='%s' cellCh=%u mRef=%p",
+                    id.c_str(), result.second, (void*)base, parentName, cellChildren, (void*)ptr.mRef);
+                Vita::breadcrumb(buf);
+            }
+        }
+#endif
     }
 
     void Objects::insertCreature(const MWWorld::Ptr& ptr, const std::string& mesh, bool weaponsShields)
@@ -144,6 +164,22 @@ namespace MWRender
             return true;
 
         const auto iter = mObjects.find(ptr.mRef);
+#ifdef __vita__
+        {
+            std::string id = ptr.getCellRef().getRefId().toDebugString();
+            if (id.find("chargen") != std::string::npos || id.find("statssheet") != std::string::npos)
+            {
+                bool found = (iter != mObjects.end());
+                auto* base = ptr.getRefData().getBaseNode();
+                unsigned int numParents = base ? base->getNumParents() : 0;
+                const char* parentName = (base && numParents > 0) ? base->getParent(0)->getName().c_str() : "none";
+                char buf[256];
+                snprintf(buf, sizeof(buf), "Objects::removeObject(%s) found=%d base=%p par=%u parentName='%s' mRef=%p",
+                    id.c_str(), found, (void*)base, numParents, parentName, (void*)ptr.mRef);
+                Vita::breadcrumb(buf);
+            }
+        }
+#endif
         if (iter != mObjects.end())
         {
             iter->second->removeFromScene();
@@ -164,6 +200,14 @@ namespace MWRender
             return true;
         }
         return false;
+    }
+
+    osg::Group* Objects::getCellRoot(const MWWorld::CellStore* store)
+    {
+        CellMap::iterator it = mCellSceneNodes.find(store);
+        if (it != mCellSceneNodes.end())
+            return it->second.get();
+        return nullptr;
     }
 
     void Objects::removeCell(const MWWorld::CellStore* store)

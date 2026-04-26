@@ -40,6 +40,7 @@
 #include <components/sceneutil/rtt.hpp>
 #include <components/sceneutil/shadow.hpp>
 #include <components/sceneutil/statesetupdater.hpp>
+#include <components/sceneutil/unrefqueue.hpp>
 #include <components/sceneutil/visitor.hpp>
 #include <components/sceneutil/workqueue.hpp>
 #include <components/sceneutil/writescene.hpp>
@@ -86,6 +87,12 @@
 #include "util.hpp"
 #include "vismask.hpp"
 #include "water.hpp"
+
+#ifdef __vita__
+#include <components/vita/VitaShader.h>
+#include "../vita/VitaInit.h"
+#include <osg/GL>
+#endif
 
 namespace MWRender
 {
@@ -312,6 +319,7 @@ namespace MWRender
         , mViewer(viewer)
         , mRootNode(rootNode)
         , mResourceSystem(resourceSystem)
+        , mUnrefQueue(unrefQueue)
         , mWorkQueue(workQueue)
         , mNavigator(navigator)
         , mNightEyeFactor(0.f)
@@ -328,7 +336,11 @@ namespace MWRender
         bool reverseZ = SceneUtil::AutoDepth::isReversed();
         const SceneUtil::LightingMethod lightingMethod = Settings::shaders().mLightingMethod;
 
+#ifdef __vita__
+        resourceSystem->getSceneManager()->setParticleSystemMask(0);
+#else
         resourceSystem->getSceneManager()->setParticleSystemMask(MWRender::Mask_ParticleSystem);
+#endif
 
         // Figure out which pipeline must be used by default and inform the user
         bool forceShaders = Settings::shaders().mForceShaders;
@@ -477,9 +489,11 @@ namespace MWRender
             mViewer->getIncrementalCompileOperation()->setTargetFrameRate(Settings::cells().mTargetFramerate);
         }
 
+#ifndef __vita__
         mDebugDraw = new Debug::DebugDrawer(mResourceSystem->getSceneManager()->getShaderManager());
         mDebugDraw->setNodeMask(Mask_Debug);
         sceneRoot->addChild(mDebugDraw);
+#endif
 
         mResourceSystem->getSceneManager()->setIncrementalCompileOperation(mViewer->getIncrementalCompileOperation());
 
@@ -508,12 +522,17 @@ namespace MWRender
         mPerViewUniformStateUpdater = new PerViewUniformStateUpdater(mResourceSystem->getSceneManager());
         rootNode->addCullCallback(mPerViewUniformStateUpdater);
 
+#ifdef __vita__
+        // Skip PostProcessor on Vita — set scene data directly
+        mViewer->setSceneData(mRootNode);
+#else
         mPostProcessor = new PostProcessor(*this, viewer, mRootNode, resourceSystem->getVFS());
         resourceSystem->getSceneManager()->setOpaqueDepthTex(
             mPostProcessor->getTexture(PostProcessor::Tex_OpaqueDepth, 0),
             mPostProcessor->getTexture(PostProcessor::Tex_OpaqueDepth, 1));
         resourceSystem->getSceneManager()->setSupportsNormalsRT(mPostProcessor->getSupportsNormalsRT());
         resourceSystem->getSceneManager()->setWeatherParticleOcclusion(Settings::shaders().mWeatherParticleOcclusion);
+#endif
 
         // water goes after terrain for correct waterculling order
         mWater = std::make_unique<Water>(
@@ -548,6 +567,19 @@ namespace MWRender
         sceneRoot->getOrCreateStateSet()->addUniform(new osg::Uniform("emissiveMult", 1.f));
         sceneRoot->getOrCreateStateSet()->addUniform(new osg::Uniform("specStrength", 1.f));
         sceneRoot->getOrCreateStateSet()->addUniform(new osg::Uniform("distortionStrength", 0.f));
+
+#ifdef __vita__
+        // Add uniforms for the custom Vita static geometry shader.
+        // Updated per-frame in update() to keep lighting/fog in sync.
+        Vita::setupSceneUniforms(sceneRoot->getOrCreateStateSet());
+
+        // White fallback texture on unit 0 at scene root level.
+        // Any geometry without its own texture inherits this via OSG state inheritance,
+        // ensuring the shader's texture2D(diffuseMap, ...) samples white (1,1,1,1)
+        // instead of garbage from an unbound sampler.
+        sceneRoot->getOrCreateStateSet()->setTextureAttributeAndModes(
+            0, Vita::getWhiteFallbackTexture(), osg::StateAttribute::ON);
+#endif
 
         resourceSystem->getSceneManager()->setUpNormalsRTForStateSet(sceneRoot->getOrCreateStateSet(), true);
 
@@ -627,6 +659,15 @@ namespace MWRender
     Resource::ResourceSystem* RenderingManager::getResourceSystem()
     {
         return mResourceSystem;
+    }
+
+    void RenderingManager::flushUnrefQueueImmediate()
+    {
+        // Synchronously release all deferred-unreference objects on the main thread.
+        // Normally these are flushed via the WorkQueue (background thread), but on Vita
+        // we need to release them immediately before clearCache() so that old scene graph
+        // nodes drop their texture/mesh references, making cache entries evictable.
+        mUnrefQueue.flushImmediate();
     }
 
     SceneUtil::WorkQueue* RenderingManager::getWorkQueue()
@@ -738,8 +779,11 @@ namespace MWRender
         // This is total nonsense but it's what Morrowind uses
         static const osg::Vec4f interiorSunPos
             = osg::Vec4f(-1.f, osg::DegreesToRadians(45.f), osg::DegreesToRadians(45.f), 0.f);
-        mPostProcessor->getStateUpdater()->setSunPos(interiorSunPos, false);
-        mPostProcessor->getStateUpdater()->setSunVec(-interiorSunPos);
+        if (mPostProcessor)
+        {
+            mPostProcessor->getStateUpdater()->setSunPos(interiorSunPos, false);
+            mPostProcessor->getStateUpdater()->setSunVec(-interiorSunPos);
+        }
         mSunLight->setPosition(interiorSunPos);
     }
 
@@ -749,8 +793,11 @@ namespace MWRender
         mSunLight->setDiffuse(diffuse);
         mSunLight->setSpecular(osg::Vec4f(specular.x(), specular.y(), specular.z(), specular.w() * sunVis));
 
-        mPostProcessor->getStateUpdater()->setSunColor(diffuse);
-        mPostProcessor->getStateUpdater()->setSunVis(sunVis);
+        if (mPostProcessor)
+        {
+            mPostProcessor->getStateUpdater()->setSunColor(diffuse);
+            mPostProcessor->getStateUpdater()->setSunVis(sunVis);
+        }
     }
 
     void RenderingManager::setSunDirection(const osg::Vec3f& direction)
@@ -767,8 +814,11 @@ namespace MWRender
 
         mSky->setSunDirection(position);
 
-        mPostProcessor->getStateUpdater()->setSunPos(osg::Vec4f(position, 0.f), mNight);
-        mPostProcessor->getStateUpdater()->setSunVec(osg::Vec4f(-sunlightPos, 0.f));
+        if (mPostProcessor)
+        {
+            mPostProcessor->getStateUpdater()->setSunPos(osg::Vec4f(position, 0.f), mNight);
+            mPostProcessor->getStateUpdater()->setSunVec(osg::Vec4f(-sunlightPos, 0.f));
+        }
     }
 
     void RenderingManager::addCell(const MWWorld::CellStore* store)
@@ -823,7 +873,8 @@ namespace MWRender
             mShadowManager->enableOutdoorMode();
         else
             mShadowManager->enableIndoorMode(Settings::shadows());
-        mPostProcessor->getStateUpdater()->setIsInterior(!enabled);
+        if (mPostProcessor)
+            mPostProcessor->getStateUpdater()->setIsInterior(!enabled);
     }
 
     bool RenderingManager::toggleBorders()
@@ -934,19 +985,62 @@ namespace MWRender
         setFogColor(fogColor);
 
         auto world = MWBase::Environment::get().getWorld();
-        const auto& stateUpdater = mPostProcessor->getStateUpdater();
+        if (mPostProcessor)
+        {
+            const auto& stateUpdater = mPostProcessor->getStateUpdater();
 
-        stateUpdater->setFogRange(fogStart, fogEnd);
-        stateUpdater->setNearFar(mNearClip, mViewDistance);
-        stateUpdater->setIsUnderwater(isUnderwater);
-        stateUpdater->setFogColor(fogColor);
-        stateUpdater->setGameHour(world->getTimeStamp().getHour());
-        stateUpdater->setWeatherId(world->getCurrentWeatherScriptId());
-        stateUpdater->setNextWeatherId(world->getNextWeatherScriptId());
-        stateUpdater->setWeatherTransition(world->getWeatherTransition());
-        stateUpdater->setWindSpeed(world->getWindSpeed());
-        stateUpdater->setSkyColor(mSky->getSkyColor());
-        mPostProcessor->setUnderwaterFlag(isUnderwater);
+            stateUpdater->setFogRange(fogStart, fogEnd);
+            stateUpdater->setNearFar(mNearClip, mViewDistance);
+            stateUpdater->setIsUnderwater(isUnderwater);
+            stateUpdater->setFogColor(fogColor);
+            stateUpdater->setGameHour(world->getTimeStamp().getHour());
+            stateUpdater->setWeatherId(world->getCurrentWeatherScriptId());
+            stateUpdater->setNextWeatherId(world->getNextWeatherScriptId());
+            stateUpdater->setWeatherTransition(world->getWeatherTransition());
+            stateUpdater->setWindSpeed(world->getWindSpeed());
+            stateUpdater->setSkyColor(mSky->getSkyColor());
+            mPostProcessor->setUnderwaterFlag(isUnderwater);
+        }
+
+#ifdef __vita__
+        // Update custom shader uniforms for all Vita GLSL-shaded geometry.
+        // Sun direction: mSunLight position (w=0 directional), transformed to view space.
+        osg::Vec4f sunPos4 = mSunLight->getPosition();
+        osg::Vec3f sunDirWorld(sunPos4.x(), sunPos4.y(), sunPos4.z());
+        sunDirWorld.normalize();
+
+        // Transform sun direction to view space for the shaders
+        osg::Matrixf viewMatrix = mViewer->getCamera()->getViewMatrix();
+        osg::Vec3f sunDirView = osg::Matrixf::transform3x3(sunDirWorld, viewMatrix);
+        sunDirView.normalize();
+
+        osg::Vec4f sunDiffuse = mSunLight->getDiffuse();
+        osg::Vec3f sunColor(sunDiffuse.r(), sunDiffuse.g(), sunDiffuse.b());
+
+        osg::Vec3f ambient(mAmbientColor.r(), mAmbientColor.g(), mAmbientColor.b());
+
+        Vita::updateSceneUniforms(mSceneRoot->getOrCreateStateSet(), sunDirView, sunColor, ambient,
+            fogStart, fogEnd, fogColor);
+
+        // Periodic lighting diagnostics (every ~5 seconds at 30fps)
+        {
+            static int s_frameCount = 0;
+            if (++s_frameCount >= 150)
+            {
+                s_frameCount = 0;
+                auto world = MWBase::Environment::get().getWorld();
+                float gameHour = world ? world->getTimeStamp().getHour() : -1.f;
+                char buf[256];
+                snprintf(buf, sizeof(buf),
+                    "[Light] hr=%.1f sun=(%.2f,%.2f,%.2f) amb=(%.2f,%.2f,%.2f) dir=(%.2f,%.2f,%.2f) fog=%.0f-%.0f",
+                    gameHour, sunColor.x(), sunColor.y(), sunColor.z(),
+                    ambient.x(), ambient.y(), ambient.z(),
+                    sunDirView.x(), sunDirView.y(), sunDirView.z(),
+                    fogStart, fogEnd);
+                Vita::breadcrumb(buf);
+            }
+        }
+#endif
     }
 
     void RenderingManager::updatePlayerPtr(const MWWorld::Ptr& ptr)
@@ -999,7 +1093,8 @@ namespace MWRender
         mWater->setEnabled(enabled);
         mSky->setWaterEnabled(enabled);
 
-        mPostProcessor->getStateUpdater()->setIsWaterEnabled(enabled);
+        if (mPostProcessor)
+            mPostProcessor->getStateUpdater()->setIsWaterEnabled(enabled);
     }
 
     void RenderingManager::setWaterHeight(float height)
@@ -1008,7 +1103,8 @@ namespace MWRender
         mWater->setHeight(height);
         mSky->setWaterHeight(height);
 
-        mPostProcessor->getStateUpdater()->setWaterHeight(height);
+        if (mPostProcessor)
+            mPostProcessor->getStateUpdater()->setWaterHeight(height);
     }
 
     void RenderingManager::screenshot(osg::Image* image, int w, int h)
@@ -1434,7 +1530,8 @@ namespace MWRender
         if (mNightEyeFactor > 0.f)
             color += osg::Vec4f(0.7f, 0.7f, 0.7f, 0.0f) * mNightEyeFactor;
 
-        mPostProcessor->getStateUpdater()->setAmbientColor(color);
+        if (mPostProcessor)
+            mPostProcessor->getStateUpdater()->setAmbientColor(color);
         mStateUpdater->setAmbientColor(color);
     }
 
@@ -1528,6 +1625,22 @@ namespace MWRender
             {
                 setViewDistance(Settings::camera().mViewingDistance);
             }
+            else if (it->first == "Camera"
+                && (it->second == "small feature culling"
+                    || it->second == "small feature culling pixel size"))
+            {
+                osg::Camera::CullingMode cullingMode
+                    = osg::Camera::DEFAULT_CULLING | osg::Camera::FAR_PLANE_CULLING;
+                if (!Settings::camera().mSmallFeatureCulling)
+                    cullingMode &= ~(osg::CullStack::SMALL_FEATURE_CULLING);
+                else
+                {
+                    mViewer->getCamera()->setSmallFeatureCullingPixelSize(
+                        Settings::camera().mSmallFeatureCullingPixelSize);
+                    cullingMode |= osg::CullStack::SMALL_FEATURE_CULLING;
+                }
+                mViewer->getCamera()->setCullingMode(cullingMode);
+            }
             else if (it->first == "General"
                 && (it->second == "texture filter" || it->second == "texture mipmap" || it->second == "anisotropy"))
             {
@@ -1584,13 +1697,16 @@ namespace MWRender
             }
             else if (it->first == "Post Processing" && it->second == "enabled")
             {
-                if (Settings::postProcessing().mEnabled)
-                    mPostProcessor->enable();
-                else
+                if (mPostProcessor)
                 {
-                    mPostProcessor->disable();
-                    if (auto* hud = MWBase::Environment::get().getWindowManager()->getPostProcessorHud())
-                        hud->setVisible(false);
+                    if (Settings::postProcessing().mEnabled)
+                        mPostProcessor->enable();
+                    else
+                    {
+                        mPostProcessor->disable();
+                        if (auto* hud = MWBase::Environment::get().getWindowManager()->getPostProcessorHud())
+                            hud->setVisible(false);
+                    }
                 }
             }
         }
@@ -1604,6 +1720,7 @@ namespace MWRender
     void RenderingManager::setViewDistance(float distance, bool delay)
     {
         mViewDistance = distance;
+        mFog->rescaleToViewDistance(distance);
 
         if (delay)
         {

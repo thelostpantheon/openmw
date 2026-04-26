@@ -24,7 +24,11 @@ namespace Files
         std::size_t mOrigin;
         std::size_t mSize;
         Platform::File::ScopedHandle mFile;
+#ifdef __vita__
+        char mBuffer[32768]{ 0 };
+#else
         char mBuffer[8192]{ 0 };
+#endif
     };
 }
 

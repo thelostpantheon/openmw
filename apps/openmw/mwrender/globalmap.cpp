@@ -420,6 +420,16 @@ namespace MWRender
     {
         ensureLoaded();
 
+#ifdef __vita__
+        // On Vita, render() is deferred. If clear() is called before render()
+        // (e.g. during loadGame → cleanup), mOverlayImage is still null.
+        if (!mOverlayImage)
+        {
+            mPendingImageDest.clear();
+            return;
+        }
+#endif
+
         memset(mOverlayImage->data(), 0, mOverlayImage->getTotalSizeInBytes());
 
         mPendingImageDest.clear();
@@ -468,7 +478,35 @@ namespace MWRender
 
     void GlobalMap::read(ESM::GlobalMap& map)
     {
+#ifdef __vita__
+        // Vita: run map render synchronously (avoids PTE condition_variable crash).
+        if (mWorkItem)
+        {
+            mWorkItem->doWork();
+            mOverlayImage = mWorkItem->mOverlayImage;
+            mBaseTexture = mWorkItem->mBaseTexture;
+            mAlphaTexture = mWorkItem->mAlphaTexture;
+            mOverlayTexture = mWorkItem->mOverlayTexture;
+            requestOverlayTextureUpdate(0, 0, mWidth, mHeight, osg::ref_ptr<osg::Texture2D>(), true, false);
+            mWorkItem = nullptr;
+        }
+        else if (!mOverlayTexture)
+        {
+            render();
+            if (mWorkItem)
+            {
+                mWorkItem->doWork();
+                mOverlayImage = mWorkItem->mOverlayImage;
+                mBaseTexture = mWorkItem->mBaseTexture;
+                mAlphaTexture = mWorkItem->mAlphaTexture;
+                mOverlayTexture = mWorkItem->mOverlayTexture;
+                requestOverlayTextureUpdate(0, 0, mWidth, mHeight, osg::ref_ptr<osg::Texture2D>(), true, false);
+                mWorkItem = nullptr;
+            }
+        }
+#else
         ensureLoaded();
+#endif
 
         const ESM::GlobalMap::Bounds& bounds = map.mBounds;
 

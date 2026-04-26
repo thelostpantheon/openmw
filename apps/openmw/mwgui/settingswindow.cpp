@@ -10,6 +10,7 @@
 #include <MyGUI_ScrollBar.h>
 #include <MyGUI_ScrollView.h>
 #include <MyGUI_TabControl.h>
+#include <MyGUI_TabItem.h>
 #include <MyGUI_UString.h>
 #include <MyGUI_Window.h>
 
@@ -261,6 +262,56 @@ namespace MWGui
 
         configureWidgets(mMainWidget, true);
 
+#ifdef __vita__
+        hideIrrelevantVitaWidgets();
+        updateVitaViewDistVisibility();
+
+        // Target-fps dropdown: pick current index from setting, wire change handler.
+        try
+        {
+            getWidget(mVitaDynFogTargetFpsList, "VitaDynFogTargetFpsList");
+            if (mVitaDynFogTargetFpsList)
+            {
+                const float current = Settings::camera().mVitaDynFogTargetFps.get();
+                size_t idx = 2; // default to "20"
+                if (current < 16.5f)      idx = 0;  // 15
+                else if (current < 19.f)  idx = 1;  // 18
+                else                      idx = 2;  // 20
+                mVitaDynFogTargetFpsList->setIndexSelected(idx);
+                mVitaDynFogTargetFpsList->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onVitaDynFogTargetFpsChanged);
+            }
+
+            // Fog aggression dropdown: pick current index from setting string
+            getWidget(mVitaDynFogAggressionList, "VitaDynFogAggressionList");
+            if (mVitaDynFogAggressionList)
+            {
+                const std::string& current = Settings::camera().mVitaDynFogAggression.get();
+                size_t idx = 1; // default to "Aggressive"
+                if (current == "normal")               idx = 0;
+                else if (current == "very aggressive") idx = 2;
+                else                                   idx = 1;
+                mVitaDynFogAggressionList->setIndexSelected(idx);
+                mVitaDynFogAggressionList->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onVitaDynFogAggressionChanged);
+            }
+
+            // Cell cache dropdown (1/2)
+            getWidget(mVitaCellCacheList, "VitaCellCacheList");
+            if (mVitaCellCacheList)
+            {
+                const int current = Settings::cells().mPreloadCellCacheMax.get();
+                size_t idx = std::clamp(current, 1, 2) - 1;
+                mVitaCellCacheList->setIndexSelected(idx);
+                mVitaCellCacheList->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onVitaCellCacheChanged);
+            }
+        }
+        catch (...)
+        {
+        }
+#endif
+
         setTitle("#{OMWEngine:SettingsWindow}");
 
         getWidget(mSettingsTab, "SettingsTab");
@@ -469,6 +520,9 @@ namespace MWGui
     void SettingsWindow::onTabChanged(MyGUI::TabControl* /*sender*/, size_t /*index*/)
     {
         resetScrollbars();
+#ifdef __vita__
+        updateVitaViewDistVisibility();
+#endif
     }
 
     void SettingsWindow::onOkButtonClicked(MyGUI::Widget* /*sender*/)
@@ -691,9 +745,44 @@ namespace MWGui
         {
             Settings::get<bool>(getSettingCategory(sender), getSettingName(sender)).set(newState);
             apply();
+#ifdef __vita__
+            if (getSettingCategory(sender) == "Camera"
+                && getSettingName(sender) == "vita dynamic fog")
+                updateVitaViewDistVisibility();
+#endif
             return;
         }
     }
+
+#ifdef __vita__
+    void SettingsWindow::onVitaDynFogTargetFpsChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        // Indices aligned with layout AddItem order.
+        static constexpr float kValues[] = { 15.f, 18.f, 20.f };
+        if (pos >= std::size(kValues))
+            return;
+        Settings::camera().mVitaDynFogTargetFps.set(kValues[pos]);
+        apply();
+    }
+
+    void SettingsWindow::onVitaDynFogAggressionChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        // Indices aligned with layout AddItem order.
+        static const char* kValues[] = { "normal", "aggressive", "very aggressive" };
+        if (pos >= std::size(kValues))
+            return;
+        Settings::camera().mVitaDynFogAggression.set(kValues[pos]);
+        apply();
+    }
+
+    void SettingsWindow::onVitaCellCacheChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        const int value = std::clamp(static_cast<int>(pos) + 1, 1, 2);
+        Settings::cells().mPreloadCellCacheMax.set(value);
+        Settings::cells().mPreloadCellCacheMin.set(1);
+        apply();
+    }
+#endif
 
     void SettingsWindow::onTextureFilteringChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
     {
@@ -1066,8 +1155,85 @@ namespace MWGui
         updateVSyncModeSettings();
         resetScrollbars();
         renderScriptSettings();
+#ifdef __vita__
+        updateVitaViewDistVisibility();
+#endif
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mOkButton);
     }
+
+#ifdef __vita__
+    namespace
+    {
+        void setVitaWidgetVisible(const MWGui::Layout& layout, const char* name, bool visible)
+        {
+            try
+            {
+                MyGUI::Widget* w = nullptr;
+                layout.getWidget(w, name);
+                if (w)
+                    w->setVisible(visible);
+            }
+            catch (...)
+            {
+            }
+        }
+    }
+
+    void SettingsWindow::updateVitaViewDistVisibility()
+    {
+        const bool dynFogOn = Settings::camera().mVitaDynamicFog.get();
+        // View-distance slider is meaningful only when dynamic fog is OFF.
+        setVitaWidgetVisible(*this, "VitaViewDistRow", !dynFogOn);
+        setVitaWidgetVisible(*this, "VitaViewDistText", !dynFogOn);
+        setVitaWidgetVisible(*this, "VitaViewDistSlider", !dynFogOn);
+        // Target-fps + aggression dropdowns are meaningful only when dynamic fog is ON.
+        setVitaWidgetVisible(*this, "VitaDynFogTargetFpsRow", dynFogOn);
+        setVitaWidgetVisible(*this, "VitaDynFogAggressionRow", dynFogOn);
+    }
+
+    void SettingsWindow::hideIrrelevantVitaWidgets()
+    {
+        setVitaWidgetVisible(*this, "ResolutionList", false);
+        setVitaWidgetVisible(*this, "WindowModeList", false);
+        setVitaWidgetVisible(*this, "VSyncModeList", false);
+
+        // The Visuals-tab view-distance slider duplicates the Vita-tab one.
+        setVitaWidgetVisible(*this, "RenderDistanceLabel", false);
+        setVitaWidgetVisible(*this, "RenderingDistanceSlider", false);
+        setVitaWidgetVisible(*this, "LargeRenderingDistanceSlider", false);
+        setVitaWidgetVisible(*this, "RenderDistanceLowLabel", false);
+        setVitaWidgetVisible(*this, "RenderDistanceHighLabel", false);
+
+        // Strip Vita-incompatible top-level tabs (Water shaders crash the
+        // renderer; Video controls are PC-only — resolution/windowmode/vsync).
+        try
+        {
+            MyGUI::TabControl* tabs = nullptr;
+            getWidget(tabs, "SettingsTab");
+            if (tabs)
+            {
+                static const std::array<const char*, 2> kTabsToRemove = {
+                    "WaterSettingsTab", "VideoSettingsTab"
+                };
+                for (const char* name : kTabsToRemove)
+                {
+                    for (size_t i = tabs->getItemCount(); i > 0; --i)
+                    {
+                        MyGUI::TabItem* item = tabs->getItemAt(i - 1);
+                        if (item && item->getName() == name)
+                        {
+                            tabs->removeItemAt(i - 1);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        catch (...)
+        {
+        }
+    }
+#endif
 
     void SettingsWindow::onClose()
     {
@@ -1140,5 +1306,6 @@ namespace MWGui
 
         return false;
     }
+
 
 }

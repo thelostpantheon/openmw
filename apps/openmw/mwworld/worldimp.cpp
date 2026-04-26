@@ -3,6 +3,13 @@
 #include <charconv>
 #include <vector>
 
+#ifdef __vita__
+#include "../vita/VitaInit.h"
+#define VITA_CRUMB(msg) Vita::breadcrumb(msg)
+#else
+#define VITA_CRUMB(msg)
+#endif
+
 #include <osg/ComputeBoundsVisitor>
 #include <osg/Group>
 #include <osg/Timer>
@@ -326,6 +333,7 @@ namespace MWWorld
 
     void World::startNewGame(bool bypass)
     {
+        VITA_CRUMB("startNewGame() enter");
         mGoToJail = false;
         mLevitationEnabled = true;
         mTeleportEnabled = true;
@@ -335,13 +343,16 @@ namespace MWWorld
         mSky = true;
 
         // Rebuild player
+        VITA_CRUMB("startNewGame() setupPlayer");
         setupPlayer();
 
+        VITA_CRUMB("startNewGame() renderPlayer");
         renderPlayer();
         mRendering->getCamera()->reset();
 
         // we don't want old weather to persist on a new game
         // Note that if reset later, the initial ChangeWeather that the chargen script calls will be lost.
+        VITA_CRUMB("startNewGame() weatherManager");
         mWeatherManager.reset();
         mWeatherManager = std::make_unique<MWWorld::WeatherManager>(*mRendering.get(), mStore);
 
@@ -372,8 +383,10 @@ namespace MWWorld
         }
         else
         {
+            VITA_CRUMB("startNewGame() running startup scripts");
             for (int i = 0; i < 5; ++i)
                 MWBase::Environment::get().getScriptManager()->getGlobalScripts().run();
+            VITA_CRUMB("startNewGame() scripts done, checking player cell");
             if (!getPlayerPtr().isInCell())
             {
                 ESM::Position pos;
@@ -385,14 +398,17 @@ namespace MWWorld
                 pos.rot[1] = 0;
                 pos.rot[2] = 0;
 
+                VITA_CRUMB("startNewGame() changeToExteriorCell");
                 ESM::ExteriorCellLocation exteriorCellPos = ESM::positionToExteriorCellLocation(pos.pos[0], pos.pos[1]);
                 ESM::RefId cellId = ESM::RefId::esm3ExteriorCell(exteriorCellPos.mX, exteriorCellPos.mY);
                 mWorldScene->changeToExteriorCell(cellId, pos, true);
+                VITA_CRUMB("startNewGame() cell loaded");
             }
         }
 
         if (!bypass)
         {
+            VITA_CRUMB("startNewGame() playing new game video");
             std::string_view video = Fallback::Map::getString("Movies_New_Game");
             if (!video.empty())
             {
@@ -402,6 +418,7 @@ namespace MWWorld
             }
         }
 
+        VITA_CRUMB("startNewGame() enabling collision");
         // enable collision
         if (!mPhysics->toggleCollisionMode())
             mPhysics->toggleCollisionMode();
@@ -822,8 +839,21 @@ namespace MWWorld
         {
             reference.getRefData().enable();
 
-            if (mWorldScene->getActiveCells().find(reference.getCell()) != mWorldScene->getActiveCells().end()
-                && reference.getCellRef().getCount())
+            bool cellActive = mWorldScene->getActiveCells().find(reference.getCell())
+                != mWorldScene->getActiveCells().end();
+            bool hasCount = reference.getCellRef().getCount() != 0;
+
+#ifdef __vita__
+            {
+                std::string id = reference.getCellRef().getRefId().toDebugString();
+                char buf[256];
+                snprintf(buf, sizeof(buf), "World::enable(%s) cellActive=%d count=%d",
+                    id.c_str(), cellActive, hasCount);
+                Vita::breadcrumb(buf);
+            }
+#endif
+
+            if (cellActive && hasCount)
                 mWorldScene->addObjectToScene(reference);
 
             if (reference.getCellRef().getRefNum().hasContentFile())
@@ -866,6 +896,23 @@ namespace MWWorld
             throw std::runtime_error("can not disable player object");
 
         reference.getRefData().disable();
+
+#ifdef __vita__
+        {
+            std::string id = reference.getCellRef().getRefId().toDebugString();
+            if (id.find("chargen") != std::string::npos)
+            {
+                bool cellActive = mWorldScene->getActiveCells().find(reference.getCell())
+                    != mWorldScene->getActiveCells().end();
+                bool hasCount = reference.getCellRef().getCount() != 0;
+                auto* base = reference.getRefData().getBaseNode();
+                char buf[256];
+                snprintf(buf, sizeof(buf), "World::disable(%s) cellActive=%d count=%d base=%p",
+                    id.c_str(), cellActive, hasCount, (void*)base);
+                Vita::breadcrumb(buf);
+            }
+        }
+#endif
 
         if (reference.getCellRef().getRefNum().hasContentFile())
         {

@@ -42,7 +42,11 @@ extern "C"
 #include "videodefs.hpp"
 #include "libavformatdefines.hpp"
 
+#ifdef __vita__
+#define VIDEO_PICTURE_QUEUE_SIZE 3
+#else
 #define VIDEO_PICTURE_QUEUE_SIZE 50
+#endif
 
 extern "C"
 {

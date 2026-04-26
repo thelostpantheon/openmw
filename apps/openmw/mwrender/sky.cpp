@@ -27,6 +27,10 @@
 
 #include <components/nifosg/particle.hpp>
 
+#ifdef __vita__
+#include <osg/Uniform>
+#endif
+
 #include "../mwworld/datetimemanager.hpp"
 #include "../mwworld/weather.hpp"
 
@@ -265,10 +269,26 @@ namespace MWRender
         mSkyRootNode = new CameraRelativeTransform;
         mSkyRootNode->setName("Sky Root");
         // Assign empty program to specify we don't want shaders when we are rendering in FFP pipeline
+#ifndef __vita__
+        // On Vita, an empty osg::Program puts vitaGL into custom shader mode, causing crashes.
         if (!mSceneManager->getForceShaders())
             mSkyRootNode->getOrCreateStateSet()->setAttributeAndModes(new osg::Program(),
                 osg::StateAttribute::OVERRIDE | osg::StateAttribute::PROTECTED | osg::StateAttribute::ON);
+#endif
         mSceneManager->setUpNormalsRTForStateSet(mSkyRootNode->getOrCreateStateSet(), false);
+#ifdef __vita__
+        // VitaLit always computes fog, but sky should be unfogged.
+        mSkyRootNode->getOrCreateStateSet()->addUniform(new osg::Uniform("u_fogStart", 0.f));
+        mSkyRootNode->getOrCreateStateSet()->addUniform(new osg::Uniform("u_fogEnd", 1000000.f));
+        // Sky uses emission for color (vertex colors = sky color, unlit).
+        // Override colorMode to 1 (EMISSION) so VitaLit treats vertex colors
+        // as emission instead of diffuse (which would apply NdotL lighting).
+        mSkyRootNode->getOrCreateStateSet()->addUniform(
+            new osg::Uniform("colorMode", 1), osg::StateAttribute::OVERRIDE);
+        // Tint sky toward u_fogColor near horizon so it smoothly meets fog-shrouded terrain.
+        mSkyRootNode->getOrCreateStateSet()->addUniform(
+            new osg::Uniform("u_skyHorizonBlend", 1.f), osg::StateAttribute::OVERRIDE);
+#endif
         SceneUtil::ShadowManager::instance().disableShadowsForStateSet(*mSkyRootNode->getOrCreateStateSet());
         parentNode->addChild(mSkyRootNode);
 
@@ -434,7 +454,13 @@ namespace MWRender
         // (near 1-2). Since the rain is a regular geometry, it produces water ripples, also in theory it can be removed
         // if collides with something.
         osg::ref_ptr<RainCounter> counter = new RainCounter;
+#ifdef __vita__
+        // Vita: reduce rain spawn rate (~60% fewer drops) to stop storms tanking
+        // fps from particle overdraw. Storm is still visibly raining, just thinner.
+        counter->setNumberOfParticlesPerSecondToCreate(mRainMaxRaindrops / mRainEntranceSpeed * 8);
+#else
         counter->setNumberOfParticlesPerSecondToCreate(mRainMaxRaindrops / mRainEntranceSpeed * 20);
+#endif
         emitter->setCounter(counter);
         mCounter = counter;
 
@@ -623,7 +649,11 @@ namespace MWRender
             mPlacer->setYRange(-rainRange.y() / 2, rainRange.y() / 2);
             mPlacer->setZRange(-rainRange.z() / 2, rainRange.z() / 2);
 
+#ifdef __vita__
+            mCounter->setNumberOfParticlesPerSecondToCreate(mRainMaxRaindrops / mRainEntranceSpeed * 8);
+#else
             mCounter->setNumberOfParticlesPerSecondToCreate(mRainMaxRaindrops / mRainEntranceSpeed * 20);
+#endif
             mPrecipitationOccluder->updateRange(rainRange);
         }
     }

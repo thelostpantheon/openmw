@@ -171,17 +171,18 @@ namespace Resource
 
         /// Clone osg::Node and adjust it according to SceneManager's settings.
         /// @note Thread safe.
-        osg::ref_ptr<osg::Node> getInstance(const osg::Node* base);
+        osg::ref_ptr<osg::Node> getInstance(const osg::Node* base, bool allowParticles = false);
 
         /// Instance the given scene template.
         /// @see getTemplate
         /// @note Thread safe.
-        osg::ref_ptr<osg::Node> getInstance(VFS::Path::NormalizedView path);
+        osg::ref_ptr<osg::Node> getInstance(VFS::Path::NormalizedView path, bool allowParticles = false);
 
         /// Instance the given scene template and immediately attach it to a parent node
         /// @see getTemplate
         /// @note Not thread safe, unless parentNode is not part of the main scene graph yet.
-        osg::ref_ptr<osg::Node> getInstance(VFS::Path::NormalizedView path, osg::Group* parentNode);
+        osg::ref_ptr<osg::Node> getInstance(
+            VFS::Path::NormalizedView path, osg::Group* parentNode, bool allowParticles = false);
 
         /// Attach the given scene instance to the given parent node
         /// @note You should have the parentNode in its intended position before calling this method,

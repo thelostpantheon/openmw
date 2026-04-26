@@ -31,7 +31,7 @@ namespace MWRender
         const osg::Vec3f& worldPosition, float scale, bool isMagicVFX, bool useAmbientLight, std::string_view effectId,
         bool loop)
     {
-        osg::ref_ptr<osg::Node> node = mResourceSystem->getSceneManager()->getInstance(model);
+        osg::ref_ptr<osg::Node> node = mResourceSystem->getSceneManager()->getInstance(model, /*allowParticles=*/true);
 
         node->setNodeMask(Mask_Effect);
 

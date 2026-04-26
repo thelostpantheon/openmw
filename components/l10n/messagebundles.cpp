@@ -58,7 +58,11 @@ namespace L10n
         }
 
         template <class T>
+#ifdef __vita__
+        using StringMap = std::unordered_map<std::string, T, Misc::StringUtils::StringHash, std::equal_to<std::string>>;
+#else
         using StringMap = std::unordered_map<std::string, T, Misc::StringUtils::StringHash, std::equal_to<>>;
+#endif
 
         void loadLocaleYaml(const YAML::Node& data, const icu::Locale& lang, StringMap<icu::MessageFormat>& bundle)
         {
@@ -217,10 +221,10 @@ namespace L10n
         const icu::MessageFormat* getMessage(
             const StringMap<StringMap<icu::MessageFormat>>& bundles, std::string_view key, std::string_view localeName)
         {
-            auto iter = bundles.find(localeName);
+            auto iter = bundles.find(std::string(localeName));
             if (iter != bundles.end())
             {
-                auto message = iter->second.find(key);
+                auto message = iter->second.find(std::string(key));
                 if (message != iter->second.end())
                     return &(message->second);
             }
@@ -281,11 +285,11 @@ namespace L10n
         }
         if (localeName == "gmst" && mGmstLoader)
         {
-            if (!mGmsts.contains(key))
+            if (mGmsts.find(std::string(key)) == mGmsts.end())
                 return nullptr;
             sharedLock.unlock();
             std::unique_lock lock(mMutex);
-            auto found = mGmsts.find(key);
+            auto found = mGmsts.find(std::string(key));
             // Another thread deleted the key, retry mBundles
             if (found == mGmsts.end())
                 return getMessage(mBundles, key, localeName);
@@ -294,7 +298,7 @@ namespace L10n
             mGmsts.erase(found);
             if (message)
             {
-                auto iter = mBundles.find(localeName);
+                auto iter = mBundles.find(std::string(localeName));
                 if (iter == mBundles.end())
                     iter = mBundles.emplace(localeName, StringMap<icu::MessageFormat>()).first;
                 return &iter->second.emplace(key, *message).first->second;

@@ -737,7 +737,7 @@ namespace MWRender
             NodeMap::const_iterator found = nodeMap.end();
             for (const std::string_view& name : accumRootNames)
             {
-                found = nodeMap.find(name);
+                found = nodeMap.find(std::string(name));
                 if (found == nodeMap.end())
                     continue;
                 for (SceneUtil::KeyframeHolder::KeyframeControllerMap::const_iterator it = controllerMap.begin();
@@ -1089,7 +1089,7 @@ namespace MWRender
         const AnimState& active)
     {
         osg::ref_ptr<ControllerType> animController;
-        if (blendControllers.contains(node))
+        if (blendControllers.find(node) != blendControllers.end())
         {
             animController = blendControllers.at(node);
             animController->setKeyframeTrack(keyframeController, stateData, blendRules);
@@ -1738,7 +1738,7 @@ namespace MWRender
             parentNode = mInsert;
         else
         {
-            NodeMap::const_iterator found = getNodeMap().find(bonename);
+            NodeMap::const_iterator found = getNodeMap().find(std::string(bonename));
             if (found == getNodeMap().end())
                 throw std::runtime_error("Can't find bone " + std::string{ bonename });
 
@@ -1764,7 +1764,7 @@ namespace MWRender
         parentNode->addChild(trans);
 
         osg::ref_ptr<osg::Node> node
-            = mResourceSystem->getSceneManager()->getInstance(VFS::Path::toNormalized(model), trans);
+            = mResourceSystem->getSceneManager()->getInstance(VFS::Path::toNormalized(model), trans, /*allowParticles=*/true);
 
         if (useAmbientLight)
         {
@@ -1864,7 +1864,7 @@ namespace MWRender
 
     const osg::Node* Animation::getNode(std::string_view name) const
     {
-        NodeMap::const_iterator found = getNodeMap().find(name);
+        NodeMap::const_iterator found = getNodeMap().find(std::string(name));
         if (found == getNodeMap().end())
             return nullptr;
         else
@@ -1949,7 +1949,7 @@ namespace MWRender
 
     osg::ref_ptr<RotateController> Animation::addRotateController(std::string_view bone)
     {
-        auto iter = getNodeMap().find(bone);
+        auto iter = getNodeMap().find(std::string(bone));
         if (iter == getNodeMap().end())
             return nullptr;
         osg::MatrixTransform* node = iter->second;

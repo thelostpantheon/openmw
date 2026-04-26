@@ -476,6 +476,10 @@ namespace MWRender
     {
         osg::Material* mat = static_cast<osg::Material*>(stateset->getAttribute(osg::StateAttribute::MATERIAL));
         mat->setEmission(osg::Material::FRONT_AND_BACK, mEmissionColor);
+#ifdef __vita__
+        if (osg::Uniform* u = stateset->getUniform("u_materialEmission"))
+            u->set(mEmissionColor);
+#endif
     }
 
     AtmosphereNightUpdater::AtmosphereNightUpdater(Resource::ImageManager* imageManager, bool forceShaders)
@@ -593,6 +597,10 @@ namespace MWRender
 
         osg::Material* mat = static_cast<osg::Material*>(stateset->getAttribute(osg::StateAttribute::MATERIAL));
         mat->setEmission(osg::Material::FRONT_AND_BACK, mEmissionColor);
+#ifdef __vita__
+        if (osg::Uniform* u = stateset->getUniform("u_materialEmission"))
+            u->set(mEmissionColor);
+#endif
 
         osg::TexMat* texMat = static_cast<osg::TexMat*>(stateset->getTextureAttribute(0, osg::StateAttribute::TEXMAT));
         texMat->setMatrix(mTexMat);

@@ -122,6 +122,11 @@ namespace MWRender
 
         Resource::ResourceSystem* getResourceSystem();
 
+        /// Immediately release all objects queued for deferred unreferencing.
+        /// On Vita, call before clearCache() during cell transitions to ensure
+        /// old scene graph nodes release their texture/mesh references.
+        void flushUnrefQueueImmediate();
+
         SceneUtil::WorkQueue* getWorkQueue();
         Terrain::World* getTerrain();
 
@@ -310,6 +315,7 @@ namespace MWRender
         osg::ref_ptr<osg::Group> mRootNode;
         osg::ref_ptr<SceneUtil::LightManager> mSceneRoot;
         Resource::ResourceSystem* mResourceSystem;
+        SceneUtil::UnrefQueue& mUnrefQueue;
 
         osg::ref_ptr<SceneUtil::WorkQueue> mWorkQueue;
 

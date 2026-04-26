@@ -152,6 +152,9 @@ namespace MWDialogue
         mChoices.clear();
 
         mActor = actor;
+#ifdef __vita__
+        mActorKnownTopicsDirty = true;
+#endif
 
         MWMechanics::CreatureStats& creatureStats = actor.getClass().getCreatureStats(actor);
         mTalkedTo = creatureStats.hasTalkedToPlayer();
@@ -248,6 +251,9 @@ namespace MWDialogue
 
     void DialogueManager::executeScript(const std::string& script, const MWWorld::Ptr& actor)
     {
+#ifdef __vita__
+        mActorKnownTopicsDirty = true;
+#endif
         if (const std::optional<Interpreter::Program> program = compile(script, actor))
         {
             try
@@ -339,6 +345,11 @@ namespace MWDialogue
 
     void DialogueManager::updateActorKnownTopics()
     {
+#ifdef __vita__
+        if (!mActorKnownTopicsDirty)
+            return;
+        mActorKnownTopicsDirty = false;
+#endif
         updateGlobals();
 
         mActorKnownTopics.clear();

@@ -380,6 +380,13 @@ namespace SceneUtil
         {
             if (mLights.empty())
                 return;
+#ifdef __vita__
+            // On Vita, VitaLit reads light data from uniforms set in
+            // StateSetGeneratorFFP::generate(). Skip all FFP glLight calls
+            // and the matrix save/restore — saves ~7 GL calls per light
+            // plus 2 glLoadMatrix calls per lit object.
+            return;
+#endif
             osg::Matrix modelViewMatrix = state.getModelViewMatrix();
 
             state.applyModelViewMatrix(state.getInitialViewMatrix());
@@ -439,6 +446,33 @@ namespace SceneUtil
         {
             osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
 
+#ifdef __vita__
+            // VitaLit reads lights from uniforms; slot count matches the shader.
+            static const char* posNames[] = { "u_lightPos0", "u_lightPos1" };
+            static const char* diffNames[] = { "u_lightDiffuse0", "u_lightDiffuse1" };
+            static const char* attenNames[] = { "u_lightAtten0", "u_lightAtten1" };
+            for (size_t i = 0; i < 2; ++i)
+            {
+                if (i < lightList.size())
+                {
+                    auto* light = lightList[i]->mLightSource->getLight(frameNum);
+                    osg::Vec3f vp = lightList[i]->mViewBound.center();
+                    stateset->addUniform(new osg::Uniform(posNames[i],
+                        osg::Vec4f(vp.x(), vp.y(), vp.z(), 1.0f)));
+                    stateset->addUniform(new osg::Uniform(diffNames[i], light->getDiffuse()));
+                    stateset->addUniform(new osg::Uniform(attenNames[i], osg::Vec4f(
+                        light->getConstantAttenuation(),
+                        light->getLinearAttenuation(),
+                        light->getQuadraticAttenuation(), 0.f)));
+                }
+                else
+                {
+                    stateset->addUniform(new osg::Uniform(posNames[i], osg::Vec4f(0, 0, 0, 0)));
+                    stateset->addUniform(new osg::Uniform(diffNames[i], osg::Vec4f(0, 0, 0, 0)));
+                    stateset->addUniform(new osg::Uniform(attenNames[i], osg::Vec4f(1, 0, 0, 0)));
+                }
+            }
+#else
             std::vector<osg::ref_ptr<osg::Light>> lights;
             lights.reserve(lightList.size());
             for (size_t i = 0; i < lightList.size(); ++i)
@@ -459,6 +493,7 @@ namespace SceneUtil
             for (size_t i = 1; i < lightList.size(); ++i)
                 stateset->setAttribute(
                     mLightManager->getDummies()[i + mLightManager->getStartLight()].get(), osg::StateAttribute::ON);
+#endif
 
             return stateset;
         }
@@ -626,9 +661,24 @@ namespace SceneUtil
 
         void operator()(LightManager* node, osgUtil::CullVisitor* cv)
         {
-            osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
+            const LightingMethod method = node->getLightingMethod();
 
-            if (node->getLightingMethod() == LightingMethod::SingleUBO)
+            // FFP lighting needs no per-cull StateSet — skip allocation entirely.
+            if (method != LightingMethod::SingleUBO && method != LightingMethod::PerObjectUniform)
+            {
+                traverse(node, cv);
+                if (node->getPPLightsBuffer() && cv->getCurrentCamera()->getName() == Constants::SceneCamera)
+                    node->getPPLightsBuffer()->updateCount(cv->getTraversalNumber());
+                return;
+            }
+
+            // Reuse a cached StateSet to avoid per-cull heap churn.
+            if (!mCachedStateSet)
+                mCachedStateSet = new osg::StateSet;
+            osg::ref_ptr<osg::StateSet> stateset = mCachedStateSet;
+            stateset->clear();
+
+            if (method == LightingMethod::SingleUBO)
             {
                 const size_t frameId = cv->getTraversalNumber() % 2;
                 stateset->setAttributeAndModes(mUBBs[frameId], osg::StateAttribute::ON);
@@ -643,7 +693,7 @@ namespace SceneUtil
                     buffer->setSpecular(0, sun->getSpecular());
                 }
             }
-            else if (node->getLightingMethod() == LightingMethod::PerObjectUniform)
+            else // PerObjectUniform
             {
                 if (auto sun = node->getSunlight())
                 {
@@ -665,6 +715,8 @@ namespace SceneUtil
             if (node->getPPLightsBuffer() && cv->getCurrentCamera()->getName() == Constants::SceneCamera)
                 node->getPPLightsBuffer()->updateCount(cv->getTraversalNumber());
         }
+
+        osg::ref_ptr<osg::StateSet> mCachedStateSet;
 
         std::array<osg::ref_ptr<osg::UniformBufferBinding>, 2> mUBBs;
     };

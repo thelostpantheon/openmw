@@ -76,6 +76,22 @@ if (ANDROID)
     set(CMAKE_FIND_ROOT_PATH ${OPENMW_DEPENDENCIES_DIR} "${CMAKE_FIND_ROOT_PATH}")
 endif()
 
+if (VITA)
+    add_compile_options(-mthumb -ffunction-sections -fdata-sections -fvisibility=hidden -fvisibility-inlines-hidden)
+    add_link_options(-Wl,--gc-sections -Wl,--undefined=sceUserMainThreadStackSize)
+    # Our components/vita/GL/gl.h shadows VitaSDK's incomplete TinyGL gl.h
+    include_directories(BEFORE "${CMAKE_SOURCE_DIR}/components/vita")
+    # VitaSDK newlib needs _DEFAULT_SOURCE for POSIX functions (realpath, etc.)
+    # and sys/syslimits.h for PATH_MAX (GCC's limits.h shadows VitaSDK's)
+    add_compile_definitions(_DEFAULT_SOURCE)
+    # PTE_CLEANUP_CXX: avoids C/C++ linkage mismatch in pthread cleanup functions.
+    add_compile_definitions(PTE_CLEANUP_CXX)
+    # Source-built LuaJIT has FFI compiled out — tell sol3 not to open it
+    add_compile_definitions(LUAJIT_DISABLE_FFI)
+    # Vita has no dynamic linker — PIC generates unsupported R_ARM_BASE_PREL relocations
+    set(CMAKE_POSITION_INDEPENDENT_CODE OFF)
+endif()
+
 # Version
 message(STATUS "Configuring OpenMW...")
 
@@ -294,6 +310,9 @@ set(USED_OSG_COMPONENTS
     osgSim
     osgViewer
     )
+if(VITA)
+    list(REMOVE_ITEM USED_OSG_COMPONENTS osgSim osgFX osgShadow osgParticle)
+endif()
 set(USED_OSG_PLUGINS
     osgdb_bmp
     osgdb_dae
@@ -304,16 +323,21 @@ set(USED_OSG_PLUGINS
     osgdb_png
     osgdb_serializers_osg
     osgdb_tga)
-
-if(NOT COLLADA_DOM_VERSION_MAJOR)
-    set(COLLADA_DOM_VERSION_MAJOR 2)
+if(VITA)
+    list(REMOVE_ITEM USED_OSG_PLUGINS osgdb_dae osgdb_serializers_osg)
 endif()
 
-if(NOT COLLADA_DOM_VERSION_MINOR)
-    set(COLLADA_DOM_VERSION_MINOR 5)
-endif()
+if(NOT VITA)
+    if(NOT COLLADA_DOM_VERSION_MAJOR)
+        set(COLLADA_DOM_VERSION_MAJOR 2)
+    endif()
 
-find_package(collada_dom 2.5)
+    if(NOT COLLADA_DOM_VERSION_MINOR)
+        set(COLLADA_DOM_VERSION_MINOR 5)
+    endif()
+
+    find_package(collada_dom 2.5)
+endif()
 
 option(OPENMW_USE_SYSTEM_ICU "Use system ICU library instead of internal. If disabled, requires autotools" ON)
 if(OPENMW_USE_SYSTEM_ICU)
@@ -488,6 +512,20 @@ if(HAVE_MULTIVIEW)
 endif(HAVE_MULTIVIEW)
 
 set(BOOST_COMPONENTS iostreams program_options)
+
+if(VITA)
+    set(Boost_USE_STATIC_RUNTIME ON)
+    # OSG's OpenThreads gets linked as -lOpenThreads; add library path
+    link_directories("${CMAKE_BINARY_DIR}/_deps/osg-build/lib")
+    # vitaGL build directory — set via -DVITAGL_DIR= or VITAGL_DIR env var
+    if(NOT VITAGL_DIR)
+        set(VITAGL_DIR "$ENV{VITAGL_DIR}")
+    endif()
+    if(NOT VITAGL_DIR)
+        message(FATAL_ERROR "VITAGL_DIR must be set (cmake -DVITAGL_DIR=/path/to/vitaGL or env var)")
+    endif()
+    link_directories("${VITAGL_DIR}")
+endif()
 
 find_package(Boost 1.70.0 CONFIG REQUIRED COMPONENTS ${BOOST_COMPONENTS} OPTIONAL_COMPONENTS ${BOOST_OPTIONAL_COMPONENTS})
 
@@ -1006,6 +1044,7 @@ elseif(NOT APPLE)
         include(CPack)
     else(WIN32)
         # Linux installation
+      if(NOT VITA)
 
         # Install binaries
         IF(BUILD_OPENMW)
@@ -1062,6 +1101,7 @@ elseif(NOT APPLE)
 
         # Install resources
         INSTALL(DIRECTORY "${INSTALL_SOURCE}/resources" DESTINATION "${DATADIR}" COMPONENT "Resources")
+      endif(NOT VITA)
     endif(WIN32)
 endif(OPENMW_OSX_DEPLOYMENT AND APPLE)
 

@@ -7,12 +7,21 @@
 
 #include <osgDB/ReaderWriter>
 #include <osgDB/Registry>
+#include <osgUtil/RenderBin>
 #include <osgViewer/ViewerEventHandlers>
 
 #include <SDL.h>
 
 #include <components/debug/debuglog.hpp>
 #include <components/debug/gldebug.hpp>
+
+#ifdef __vita__
+#include "vita/VitaInit.h"
+#include <psp2/kernel/processmgr.h>
+#define VITA_CRUMB(msg) Vita::breadcrumb(msg)
+#else
+#define VITA_CRUMB(msg)
+#endif
 
 #include <components/misc/rng.hpp>
 #include <components/misc/strings/format.hpp>
@@ -35,6 +44,7 @@
 #include <components/sceneutil/workqueue.hpp>
 
 #include <components/files/configurationmanager.hpp>
+#include <components/files/scancache.hpp>
 
 #include <components/version/version.hpp>
 
@@ -51,6 +61,7 @@
 #include <components/sceneutil/unrefqueue.hpp>
 #include <components/sceneutil/util.hpp>
 
+#include <components/settings/settings.hpp>
 #include <components/settings/shadermanager.hpp>
 #include <components/settings/values.hpp>
 
@@ -289,7 +300,17 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
 
             if (mStateManager->getState() != MWBase::StateManager::State_NoGame)
             {
+#ifdef __vita__
+                try {
+                    mWorld->updatePhysics(frametime, paused, frameStart, frameNumber, *stats);
+                } catch (const std::exception& e) {
+                    Vita::breadcrumb(("[PhysCrash] std::exception: " + std::string(e.what())).c_str());
+                } catch (...) {
+                    Vita::breadcrumb("[PhysCrash] non-std exception caught");
+                }
+#else
                 mWorld->updatePhysics(frametime, paused, frameStart, frameNumber, *stats);
+#endif
             }
         }
 
@@ -448,6 +469,13 @@ void OMW::Engine::setDataDirs(const Files::PathContainer& dataDirs)
     mDataDirs = dataDirs;
     mDataDirs.insert(mDataDirs.begin(), mResDir / "vfs");
     mFileCollections = Files::Collections(mDataDirs);
+
+#ifdef __vita__
+    const auto cachePath = mCfgMgr.getUserConfigPath() / "scan_cache.bin";
+    Files::Collections::CollectionsMap cached;
+    if (Files::loadScanCache(cachePath, mDataDirs, cached))
+        mFileCollections.setCollections(std::move(cached));
+#endif
 }
 
 // Add BSA archive
@@ -506,7 +534,11 @@ void OMW::Engine::createWindow()
         posY = SDL_WINDOWPOS_UNDEFINED_DISPLAY(screen);
     }
 
+#ifdef __vita__
+    Uint32 flags = SDL_WINDOW_SHOWN;
+#else
     Uint32 flags = SDL_WINDOW_OPENGL | SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI;
+#endif
     if (windowMode == Settings::WindowMode::Fullscreen)
         flags |= SDL_WINDOW_FULLSCREEN;
     else if (windowMode == Settings::WindowMode::WindowedFullscreen)
@@ -691,6 +723,18 @@ void OMW::Engine::createWindow()
     mViewer->realize();
     mGlMaxTextureImageUnits = identifyOp->getMaxTextureImageUnits();
 
+#ifdef __vita__
+    // Enable OSG matrix uniforms and vertex attribute aliasing for custom GLSL shaders.
+    // Matrix uniforms: OSG provides osg_ModelViewProjectionMatrix, osg_ModelViewMatrix, osg_NormalMatrix.
+    // Attribute aliasing: OSG maps glVertexPointer->glVertexAttribPointer(0), etc., so custom shaders
+    // receive vertex data through generic attribute slots instead of FFP-only arrays.
+    if (auto* gc = mViewer->getCamera()->getGraphicsContext())
+    {
+        gc->getState()->setUseModelViewAndProjectionUniforms(true);
+        gc->getState()->setUseVertexAttributeAliasing(true);
+    }
+#endif
+
     mViewer->getEventQueue()->getCurrentEventState()->setWindowRectangle(
         0, 0, graphicsWindow->getTraits()->width, graphicsWindow->getTraits()->height);
 }
@@ -722,6 +766,7 @@ void OMW::Engine::setWindowIcon()
 
 void OMW::Engine::prepareEngine()
 {
+    VITA_CRUMB("prepareEngine() enter");
     mStateManager = std::make_unique<MWState::StateManager>(mCfgMgr.getUserDataPath() / "saves", mContentFiles);
     mEnvironment.setStateManager(*mStateManager);
 
@@ -732,17 +777,42 @@ void OMW::Engine::prepareEngine()
     osg::ref_ptr<osg::Group> rootNode(new osg::Group);
     mViewer->setSceneData(rootNode);
 
+    VITA_CRUMB("prepareEngine() createWindow");
+#ifdef __vita__
+    Vita::logMemoryStatus("Pre-createWindow");
+#endif
     createWindow();
 
     mVFS = std::make_unique<VFS::Manager>();
 
+#ifdef __vita__
+    {
+        auto cacheDir = mCfgMgr.getUserConfigPath();
+        if (mForceRescan)
+        {
+            Log(Debug::Info) << "Force rescan — clearing VFS caches";
+            Files::clearScanCache(cacheDir / "scan_cache.bin");
+            std::error_code ec;
+            for (const auto& entry : std::filesystem::directory_iterator(cacheDir, ec))
+                if (entry.path().filename().string().starts_with("vfs_dir_"))
+                    std::filesystem::remove(entry.path(), ec);
+        }
+        VFS::registerArchives(mVFS.get(), mFileCollections, mArchives, true,
+            &mEncoder.get()->getStatelessEncoder(), cacheDir);
+    }
+#else
     VFS::registerArchives(mVFS.get(), mFileCollections, mArchives, true, &mEncoder.get()->getStatelessEncoder());
+#endif
 
     mResourceSystem = std::make_unique<Resource::ResourceSystem>(
         mVFS.get(), Settings::cells().mCacheExpiryDelay, &mEncoder.get()->getStatelessEncoder());
     mResourceSystem->getSceneManager()->getShaderManager().setMaxTextureUnits(mGlMaxTextureImageUnits);
+#ifdef __vita__
+    mResourceSystem->getSceneManager()->setUnRefImageDataAfterApply(true); // release CPU-side image after GPU upload
+#else
     mResourceSystem->getSceneManager()->setUnRefImageDataAfterApply(
         false); // keep to Off for now to allow better state sharing
+#endif
     mResourceSystem->getSceneManager()->setFilterSettings(Settings::general().mTextureMagFilter,
         Settings::general().mTextureMinFilter, Settings::general().mTextureMipmap,
         static_cast<float>(Settings::general().mAnisotropy));
@@ -808,6 +878,10 @@ void OMW::Engine::prepareEngine()
 
     osg::GLExtensions& exts = SceneUtil::getGLExtensions();
     bool shadersSupported = exts.glslLanguageVersion >= 1.2f;
+#ifdef __vita__
+    // vitaGL cannot compile OpenMW's GLSL shaders — force fixed-function path
+    shadersSupported = false;
+#endif
 
 #if OSG_VERSION_LESS_THAN(3, 6, 6)
     // hack fix for https://github.com/openscenegraph/OpenSceneGraph/issues/1028
@@ -821,20 +895,30 @@ void OMW::Engine::prepareEngine()
     mStereoManager->disableStereoForNode(guiRoot);
     rootNode->addChild(guiRoot);
 
+#ifdef __vita__
+    Vita::logMemoryStatus("Post-VFS");
+#endif
+    VITA_CRUMB("prepareEngine() creating WindowManager");
     mWindowManager = std::make_unique<MWGui::WindowManager>(mWindow, mViewer, guiRoot, mResourceSystem.get(),
         mWorkQueue.get(), mCfgMgr.getLogPath(), mScriptConsoleMode, mTranslationDataStorage, mEncoding, mExportFonts,
         Version::getOpenmwVersionDescription(), shadersSupported, mCfgMgr);
     mEnvironment.setWindowManager(*mWindowManager);
 
+    VITA_CRUMB("prepareEngine() creating InputManager");
     mInputManager = std::make_unique<MWInput::InputManager>(mWindow, mViewer, mScreenCaptureHandler, keybinderUser,
         keybinderUserExists, userGameControllerdb, gameControllerdb, mGrab);
     mEnvironment.setInputManager(*mInputManager);
 
     // Create sound system
+#ifdef __vita__
+    Vita::logMemoryStatus("Post-WindowManager");
+#endif
+    VITA_CRUMB("prepareEngine() creating SoundManager");
     mSoundManager = std::make_unique<MWSound::SoundManager>(mVFS.get(), mUseSound);
     mEnvironment.setSoundManager(*mSoundManager);
 
     // Create the world
+    VITA_CRUMB("prepareEngine() creating World");
     mWorld = std::make_unique<MWWorld::World>(
         mResourceSystem.get(), mActivationDistanceOverride, mCellName, mCfgMgr.getUserDataPath());
     mEnvironment.setWorld(*mWorld);
@@ -843,6 +927,21 @@ void OMW::Engine::prepareEngine()
 
     Loading::Listener* listener = MWBase::Environment::get().getWindowManager()->getLoadingScreen();
     Loading::AsyncListener asyncListener(*listener);
+#ifdef __vita__
+    Vita::logMemoryStatus("Pre-data-load");
+    VITA_CRUMB("prepareEngine() loading data sync");
+    // Load data synchronously on Vita — saves async thread stack (~1MB)
+    // Pass listener directly (not asyncListener) since loading is synchronous.
+    // AsyncListener buffers updates for cross-thread use, but nobody calls update()
+    // on the main thread during sync loading, so the loading screen never draws.
+    listener->loadingOn();
+    mWorld->loadData(mFileCollections, mContentFiles, mGroundcoverFiles, mEncoder.get(), listener);
+    listener->loadingOff();
+    Files::saveScanCache(
+        mCfgMgr.getUserConfigPath() / "scan_cache.bin", mDataDirs, mFileCollections.getCollections());
+    Vita::logMemoryStatus("Post-data-load");
+#else
+    VITA_CRUMB("prepareEngine() loading data async");
     auto dataLoading = std::async(std::launch::async,
         [&] { mWorld->loadData(mFileCollections, mContentFiles, mGroundcoverFiles, mEncoder.get(), &asyncListener); });
 
@@ -861,8 +960,18 @@ void OMW::Engine::prepareEngine()
         dataLoading.get();
     }
     listener->loadingOff();
+#endif
+    VITA_CRUMB("prepareEngine() data loaded");
 
+    VITA_CRUMB("prepareEngine() world init");
+#ifdef __vita__
+    Vita::logMemoryStatus("Pre-World::init");
+#endif
     mWorld->init(mMaxRecastLogLevel, mViewer, std::move(rootNode), mWorkQueue.get(), *mUnrefQueue);
+#ifdef __vita__
+    Vita::logMemoryStatus("Post-World::init");
+#endif
+    VITA_CRUMB("prepareEngine() world init done");
     mEnvironment.setWorldScene(mWorld->getWorldScene());
     mWorld->setupPlayer();
     mWorld->setRandomSeed(mRandomSeed);
@@ -879,7 +988,13 @@ void OMW::Engine::prepareEngine()
     });
 
     mWindowManager->setStore(mWorld->getStore());
+#ifdef __vita__
+    Vita::logMemoryStatus("Pre-initUI");
+#endif
     mWindowManager->initUI();
+#ifdef __vita__
+    Vita::logMemoryStatus("Post-initUI");
+#endif
 
     // Load translation data
     mTranslationDataStorage.setEncoder(mEncoder.get());
@@ -922,11 +1037,18 @@ void OMW::Engine::prepareEngine()
                              << 100 * static_cast<double>(result.second) / result.first << "%)";
     }
 
+#ifdef __vita__
+    Vita::logMemoryStatus("Pre-LuaInit");
+#endif
     mLuaManager->loadPermanentStorage(mCfgMgr.getUserConfigPath());
     mLuaManager->init();
 
     // starts a separate lua thread if "lua num threads" > 0
     mLuaWorker = std::make_unique<MWLua::Worker>(*mLuaManager);
+#ifdef __vita__
+    Vita::logMemoryStatus("Post-LuaInit");
+#endif
+    VITA_CRUMB("prepareEngine() done");
 }
 
 // Initialise and enter main loop.
@@ -950,8 +1072,17 @@ void OMW::Engine::go()
     mEncoder = std::make_unique<ToUTF8::Utf8Encoder>(mEncoding);
 
     // Setup viewer
+    VITA_CRUMB("go() creating viewer");
     mViewer = new osgViewer::Viewer;
     mViewer->setReleaseContextAtEndOfFrameHint(false);
+
+#ifdef __vita__
+    // DrawThreadPerContext crashes on launch — vitaGL/SceGxm isn't safe
+    // for draw submission from a non-main thread.
+    mViewer->setThreadingModel(osgViewer::ViewerBase::SingleThreaded);
+    // Cheapest sort — skip per-frame state sorting in render bins.
+    osgUtil::RenderBin::setDefaultRenderBinSortMode(osgUtil::RenderBin::TRAVERSAL_ORDER);
+#endif
 
     // Do not try to outsmart the OS thread scheduler (see bug #4785).
     mViewer->setUseConfigureAffinity(false);
@@ -995,6 +1126,7 @@ void OMW::Engine::go()
         Resource::collectStatistics(*mViewer);
 
     // Start the game
+    VITA_CRUMB("go() starting game");
     if (!mSaveGameFile.empty())
     {
         mStateManager->loadGame(mSaveGameFile);
@@ -1002,6 +1134,7 @@ void OMW::Engine::go()
     else if (!mSkipMenu)
     {
         // start in main menu
+        VITA_CRUMB("go() pushing main menu");
         mWindowManager->pushGuiMode(MWGui::GM_MainMenu);
 
         if (mVFS->exists(MWSound::titleMusic))
@@ -1024,9 +1157,28 @@ void OMW::Engine::go()
     }
 
     // Start the main rendering loop
+    VITA_CRUMB("go() entering main loop");
     MWWorld::DateTimeManager& timeManager = *mWorld->getTimeManager();
     Misc::FrameRateLimiter frameRateLimiter = Misc::makeFrameRateLimiter(mEnvironment.getFrameRateLimit());
     const std::chrono::steady_clock::duration maxSimulationInterval(std::chrono::milliseconds(200));
+#ifdef __vita__
+    constexpr float kDynFogMin = 1500.f;
+    constexpr float kDynFogMinInterior = 700.f;
+    constexpr float kDynFogMax = 5000.f;
+    constexpr float kDynFogUserMoveThreshold = 300.f;
+    constexpr float kDynFogDeadband = 0.5f;
+    constexpr float kDynFogEmaAlpha = 0.15f;
+    constexpr float kDynFogLerpHz = 4.0f;
+    constexpr auto kDynFogAdjustInterval = std::chrono::milliseconds(250);
+    float vitaDynFogTarget = Settings::camera().mViewingDistance;
+    float vitaDynFogLastWritten = Settings::camera().mViewingDistance;
+    bool vitaDynFogWasOn = false;
+    // Seed EMA with the configured target period so the first tick isn't biased.
+    float vitaDynFogEmaDt = 1.0f / std::max(15.f, Settings::camera().mVitaDynFogTargetFps.get());
+    auto vitaDynFogLastAdjust = std::chrono::steady_clock::now();
+    bool vitaDynFogWasRunning = false;
+    bool vitaDynFogWasInInterior = false;
+#endif
     while (!mViewer->done() && !mStateManager->hasQuitRequest())
     {
         const double dt = std::chrono::duration_cast<std::chrono::duration<double>>(
@@ -1065,6 +1217,144 @@ void OMW::Engine::go()
             }
         }
 
+#ifdef __vita__
+        {
+            double frameDt = std::chrono::duration<double>(
+                frameRateLimiter.getLastFrameDuration()).count();
+            // Skip cell-load / pause spikes so they don't poison the fps EMA.
+            if (frameDt > 0.001 && frameDt < 0.2)
+                vitaDynFogEmaDt = (1.0f - kDynFogEmaAlpha) * vitaDynFogEmaDt
+                    + kDynFogEmaAlpha * static_cast<float>(frameDt);
+
+            bool dynFogOn = Settings::camera().mVitaDynamicFog;
+            const float dynFogTargetFps
+                = std::max(15.f, Settings::camera().mVitaDynFogTargetFps.get());
+            auto pickFloor = [&]() -> std::pair<float, float> {
+                struct Tier { float fps, ext, intr; };
+                static constexpr Tier kTable[] = {
+                    { 15.f, 2000.f, 1000.f },
+                    { 18.f, 1700.f,  850.f },
+                    { 20.f, 1500.f,  700.f },
+                };
+                const Tier* pick = &kTable[2]; // default "20 (Balanced)"
+                float best = std::abs(dynFogTargetFps - kTable[2].fps);
+                for (const Tier& t : kTable)
+                {
+                    float d = std::abs(dynFogTargetFps - t.fps);
+                    if (d < best) { best = d; pick = &t; }
+                }
+                return { pick->ext, pick->intr };
+            };
+            const auto [floorExt, floorInt] = pickFloor();
+            const bool isRunning = (mStateManager->getState() == MWBase::StateManager::State_Running);
+            bool isInInterior = false;
+            float effectiveMin = floorExt;
+            if (isRunning)
+            {
+                MWWorld::Ptr player = mWorld->getPlayerPtr();
+                MWWorld::CellStore* cell = player.getCell();
+                if (cell && !cell->isExterior())
+                {
+                    isInInterior = true;
+                    effectiveMin = floorInt;
+                }
+            }
+
+            // Snap fog to the floor so it always *grows* from tight toward the
+            const bool dynFogJustEnabled = dynFogOn && !vitaDynFogWasOn;
+            const bool justLoadedGame = dynFogOn && isRunning && !vitaDynFogWasRunning;
+            const bool enteredInterior = dynFogOn && isInInterior && !vitaDynFogWasInInterior;
+            if (dynFogJustEnabled || justLoadedGame || enteredInterior)
+            {
+                vitaDynFogTarget = effectiveMin;
+                vitaDynFogLastWritten = effectiveMin;
+                Settings::camera().mViewingDistance.set(effectiveMin);
+                static const Settings::CategorySettingVector kFilter{ { "Camera", "viewing distance" } };
+                const auto changes = Settings::Manager::getPendingChanges(kFilter);
+                if (!changes.empty())
+                {
+                    mWorld->processChangedSettings(changes);
+                    Settings::Manager::resetPendingChanges(kFilter);
+                }
+                vitaDynFogLastAdjust = std::chrono::steady_clock::now();
+            }
+            vitaDynFogWasOn = dynFogOn;
+            vitaDynFogWasRunning = isRunning;
+            vitaDynFogWasInInterior = isInInterior;
+
+            if (dynFogOn)
+            {
+                float current = Settings::camera().mViewingDistance;
+                // Compare to what we last wrote, not to target — the lerp lags target naturally.
+                if (std::abs(current - vitaDynFogLastWritten) > kDynFogUserMoveThreshold)
+                {
+                    Settings::camera().mVitaDynamicFog.set(false);
+                    vitaDynFogWasOn = false;
+                }
+                else
+                {
+                    // Resolve aggression profile each tick (cheap, allows live UI changes)
+                    const std::string& aggStr = Settings::camera().mVitaDynFogAggression.get();
+                    float shrinkCoef = 50.f, shrinkMaxAbs = 500.f, shrinkLerpHz = 6.f; // aggressive default
+                    if (aggStr == "normal")
+                    {
+                        shrinkCoef = 30.f; shrinkMaxAbs = 300.f; shrinkLerpHz = 4.f;
+                    }
+                    else if (aggStr == "very aggressive")
+                    {
+                        shrinkCoef = 80.f; shrinkMaxAbs = 800.f; shrinkLerpHz = 8.f;
+                    }
+
+                    auto now = std::chrono::steady_clock::now();
+                    if (now - vitaDynFogLastAdjust >= kDynFogAdjustInterval)
+                    {
+                        vitaDynFogLastAdjust = now;
+                        float fps = 1.0f / vitaDynFogEmaDt;
+                        float fpsGap = fps - dynFogTargetFps;
+                        float step = 0.f;
+                        if (fpsGap < -kDynFogDeadband)
+                        {
+                            // Two-tier shrink: catastrophic snap is fixed (always
+                            // saves you), proportional response scales with the
+                            // aggression setting.
+                            if (fps < 15.f)
+                                step = -2000.f;
+                            else
+                                step = std::clamp(fpsGap * shrinkCoef, -shrinkMaxAbs, -20.f);
+                        }
+                        else if (fpsGap > kDynFogDeadband)
+                            step = std::clamp(fpsGap * 20.f, 20.f, 150.f);
+                        vitaDynFogTarget
+                            = std::clamp(vitaDynFogTarget + step, effectiveMin, kDynFogMax);
+                    }
+
+
+                    const float targetDelta = vitaDynFogTarget - current;
+                    float lerpHz = kDynFogLerpHz;
+                    if (targetDelta < -1200.f)
+                        lerpHz = 16.f;
+                    else if (targetDelta < 0.f && targetDelta > -1200.f)
+                        lerpHz = shrinkLerpHz; // proportional shrink uses aggression-tuned rate
+                    float lerpT = 1.0f - std::exp(-lerpHz * static_cast<float>(frameDt));
+                    float newDist = current + targetDelta * lerpT;
+                    if (std::abs(newDist - current) > 0.5f)
+                    {
+                        Settings::camera().mViewingDistance.set(newDist);
+                        vitaDynFogLastWritten = newDist;
+                        static const Settings::CategorySettingVector kFilter{
+                            { "Camera", "viewing distance" } };
+                        const auto changes
+                            = Settings::Manager::getPendingChanges(kFilter);
+                        if (!changes.empty())
+                        {
+                            mWorld->processChangedSettings(changes);
+                            Settings::Manager::resetPendingChanges(kFilter);
+                        }
+                    }
+                }
+            }
+        }
+#endif
         frameRateLimiter.limit();
     }
 
@@ -1074,6 +1364,14 @@ void OMW::Engine::go()
     Settings::Manager::saveUser(mCfgMgr.getUserConfigPath() / "settings.cfg");
     Settings::ShaderManager::get().save();
     mLuaManager->savePermanentStorage(mCfgMgr.getUserConfigPath());
+
+#ifdef __vita__
+    // Skip C++ static destructors — vitaGL/OSG/Bullet teardown paths can hang
+    // on shutdown, leaving the app stuck instead of returning to LiveArea.
+    // Saves above are already complete; nothing else needs to run for a clean
+    // exit from the user's perspective.
+    sceKernelExitProcess(0);
+#endif
 }
 
 void OMW::Engine::setCompileAll(bool all)
