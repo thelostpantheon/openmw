@@ -210,6 +210,7 @@ namespace Vita
     static size_t s_minHeapFree = SIZE_MAX;
     static SceUID s_debugLogFd = -1;
     void pollSelectHeld();
+    void breadcrumb(const char* msg);
 
     // Emergency reserve: freed on first OOM to give breathing room for
     // the failing allocation to succeed. The per-frame watchdog then
@@ -759,6 +760,36 @@ namespace Vita
         free(cfgBuf);
     }
 
+    // Copy app0:vfs_seed/vfs_dir_<idx>.bin -> ux0:data/openmw/config/vfs_dir_<idx>.bin
+    // if the destination doesn't already exist. Skips the recursive_directory_iterator
+    // walk over app0:/resources/vfs and app0:/resources/vfs-mw on first launch.
+    static void seedVfsCacheFile(int idx)
+    {
+        char dst[128];
+        snprintf(dst, sizeof(dst), "ux0:data/openmw/config/vfs_dir_%d.bin", idx);
+        SceUID fd = sceIoOpen(dst, SCE_O_RDONLY, 0);
+        if (fd >= 0) { sceIoClose(fd); return; }
+
+        char src[128];
+        snprintf(src, sizeof(src), "app0:vfs_seed/vfs_dir_%d.bin", idx);
+        SceUID sf = sceIoOpen(src, SCE_O_RDONLY, 0);
+        if (sf < 0) return;
+
+        SceUID df = sceIoOpen(dst, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+        if (df < 0) { sceIoClose(sf); return; }
+
+        char buf[8192];
+        int n;
+        while ((n = sceIoRead(sf, buf, sizeof(buf))) > 0)
+            sceIoWrite(df, buf, n);
+        sceIoClose(df);
+        sceIoClose(sf);
+
+        char crumb[64];
+        snprintf(crumb, sizeof(crumb), "Seeded vfs_dir_%d.bin from VPK", idx);
+        breadcrumb(crumb);
+    }
+
     void ensureDataDirectories()
     {
         sceIoMkdir("ux0:data/openmw", 0777);
@@ -768,6 +799,47 @@ namespace Vita
         sceIoMkdir("ux0:data/openmw/cache", 0777);
         sceIoMkdir("ux0:data/openmw/screenshots", 0777);
         sceIoMkdir("ux0:data/openmw/mods", 0777);
+
+        // Idx 0 = app0:/resources/vfs, Idx 1 = app0:/resources/vfs-mw.
+        // Both have absolute, install-invariant paths so the cached entries
+        // are valid for every user. Data Files (idx 2) is not seeded — its
+        // contents vary per install and stale entries would mis-route lookups.
+        seedVfsCacheFile(0);
+        seedVfsCacheFile(1);
+
+        // GOG Morrowind ships with ~21k loose files extracted from the BSAs,
+        // making the first-boot VFS scan take hours. Detect GOG by the
+        // presence of bcsounds.esp (one of the GOG-only official plugins)
+        // and seed vfs_dir_2.bin from the bundled GOG cache. Retail users
+        // have a small enough Data Files dir that the cold scan is fine.
+        {
+            const char* dst = "ux0:data/openmw/config/vfs_dir_2.bin";
+            const char* gogMarker = "ux0:data/openmw/Data Files/bcsounds.esp";
+            const char* src = "app0:vfs_seed/vfs_dir_2_gog.bin";
+            SceUID dstFd = sceIoOpen(dst, SCE_O_RDONLY, 0);
+            if (dstFd >= 0) {
+                sceIoClose(dstFd);
+            } else {
+                SceUID markerFd = sceIoOpen(gogMarker, SCE_O_RDONLY, 0);
+                if (markerFd >= 0) {
+                    sceIoClose(markerFd);
+                    SceUID sf = sceIoOpen(src, SCE_O_RDONLY, 0);
+                    if (sf >= 0) {
+                        SceUID df = sceIoOpen(dst,
+                            SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+                        if (df >= 0) {
+                            char buf[8192];
+                            int n;
+                            while ((n = sceIoRead(sf, buf, sizeof(buf))) > 0)
+                                sceIoWrite(df, buf, n);
+                            sceIoClose(df);
+                            breadcrumb("Seeded vfs_dir_2.bin from GOG cache");
+                        }
+                        sceIoClose(sf);
+                    }
+                }
+            }
+        }
 
         // Create default user openmw.cfg if it doesn't exist.
         // The bundled app0:/openmw.cfg has paths but no content= lines.
