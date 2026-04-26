@@ -661,9 +661,24 @@ namespace SceneUtil
 
         void operator()(LightManager* node, osgUtil::CullVisitor* cv)
         {
-            osg::ref_ptr<osg::StateSet> stateset = new osg::StateSet;
+            const LightingMethod method = node->getLightingMethod();
 
-            if (node->getLightingMethod() == LightingMethod::SingleUBO)
+            // FFP lighting needs no per-cull StateSet — skip allocation entirely.
+            if (method != LightingMethod::SingleUBO && method != LightingMethod::PerObjectUniform)
+            {
+                traverse(node, cv);
+                if (node->getPPLightsBuffer() && cv->getCurrentCamera()->getName() == Constants::SceneCamera)
+                    node->getPPLightsBuffer()->updateCount(cv->getTraversalNumber());
+                return;
+            }
+
+            // Reuse a cached StateSet to avoid per-cull heap churn.
+            if (!mCachedStateSet)
+                mCachedStateSet = new osg::StateSet;
+            osg::ref_ptr<osg::StateSet> stateset = mCachedStateSet;
+            stateset->clear();
+
+            if (method == LightingMethod::SingleUBO)
             {
                 const size_t frameId = cv->getTraversalNumber() % 2;
                 stateset->setAttributeAndModes(mUBBs[frameId], osg::StateAttribute::ON);
@@ -678,7 +693,7 @@ namespace SceneUtil
                     buffer->setSpecular(0, sun->getSpecular());
                 }
             }
-            else if (node->getLightingMethod() == LightingMethod::PerObjectUniform)
+            else // PerObjectUniform
             {
                 if (auto sun = node->getSunlight())
                 {
@@ -700,6 +715,8 @@ namespace SceneUtil
             if (node->getPPLightsBuffer() && cv->getCurrentCamera()->getName() == Constants::SceneCamera)
                 node->getPPLightsBuffer()->updateCount(cv->getTraversalNumber());
         }
+
+        osg::ref_ptr<osg::StateSet> mCachedStateSet;
 
         std::array<osg::ref_ptr<osg::UniformBufferBinding>, 2> mUBBs;
     };

@@ -472,6 +472,10 @@ namespace MWRender
         geom2->setNodeMask(Mask_SimpleWater);
         geom2->setName("Simple Water Geometry");
         mWaterNode->addChild(geom2);
+#else
+        // Water shaders are disabled on Vita — the geom would render invisibly
+        // but still cost a cull pass + draw call. Hide it from rendering.
+        mWaterNode->setNodeMask(0);
 #endif
 
         mSceneRoot->addChild(mWaterNode);

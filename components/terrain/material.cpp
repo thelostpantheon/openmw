@@ -356,6 +356,9 @@ namespace Terrain
 
             stateset->setAttributeAndModes(Vita::createVitaTerrainMultiProgram(),
                 osg::StateAttribute::ON);
+            // Group VitaTerrainMulti draws together to minimize SGX543 program switches.
+            // Bin must be < FirstPerson (12) so depth-tests correctly with hands/weapon.
+            stateset->setRenderBinDetails(2, "RenderBin");
             stateset->addUniform(new osg::Uniform("u_numLayers", numLayers));
             stateset->addUniform(new osg::Uniform("colorMode", 2));
             stateset->addUniform(new osg::Uniform("alphaRef", 0.0f));

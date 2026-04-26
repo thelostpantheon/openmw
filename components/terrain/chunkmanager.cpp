@@ -46,7 +46,11 @@ namespace Terrain
         , mTextureManager(textureManager)
         , mCompositeMapRenderer(renderer)
         , mNodeMask(0)
+#ifdef __vita__
+        , mCompositeMapSize(128)
+#else
         , mCompositeMapSize(512)
+#endif
         , mCompositeMapLevel(1.f)
         , mMaxCompGeometrySize(1.f)
     {

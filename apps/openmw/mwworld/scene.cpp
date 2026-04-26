@@ -101,7 +101,7 @@ namespace
         // Use the configured heap size (not mallinfo.arena which is consumed, not total).
         // _newlib_heap_size_user is the actual sceKernelAllocMemBlock size.
         int heapMB = static_cast<int>(_newlib_heap_size_user / (1024 * 1024));
-        int reserve = 16; // 12MB spikes + 4MB emergency
+        int reserve = 40;
         return heapMB - reserve;
     }
 #endif

@@ -402,6 +402,55 @@ namespace Vita
         return false;
     }
 
+    // Truncate the user cfg at the first "# Auto-detected" header. Subsequent
+    // scan passes write fresh entries based on current disk state, so deleting
+    // a mod folder cleanly removes its content/data lines instead of leaving
+    // dangling references that crash the engine.
+    static void pruneAutoDetectedSections()
+    {
+        static const char* cfgPath = "ux0:data/openmw/config/openmw.cfg";
+        char* buf = nullptr;
+        int size = readFileToBuffer(cfgPath, &buf);
+        if (!buf || size <= 0)
+        {
+            free(buf);
+            return;
+        }
+
+        static const char marker[] = "# Auto-detected";
+        const int markerLen = sizeof(marker) - 1;
+        int cutAt = -1;
+        for (int i = 0; i + markerLen <= size; ++i)
+        {
+            if ((i == 0 || buf[i - 1] == '\n') && memcmp(buf + i, marker, markerLen) == 0)
+            {
+                cutAt = i;
+                break;
+            }
+        }
+
+        if (cutAt < 0)
+        {
+            free(buf);
+            return;
+        }
+
+        // Walk back over any blank lines that immediately precede the marker
+        // so we don't accumulate trailing whitespace on every reboot.
+        while (cutAt > 0 && (buf[cutAt - 1] == '\n' || buf[cutAt - 1] == '\r'))
+            --cutAt;
+
+        SceUID fd = sceIoOpen(cfgPath, SCE_O_WRONLY | SCE_O_TRUNC, 0666);
+        if (fd >= 0)
+        {
+            if (cutAt > 0)
+                sceIoWrite(fd, buf, cutAt);
+            sceIoClose(fd);
+            breadcrumb("Pruned stale auto-detected entries from user cfg");
+        }
+        free(buf);
+    }
+
     // Auto-detect content files in Data Files/ and append missing ones to user config.
     // Scans top-level only. Additive — never removes existing config lines.
     static void autoDetectContent()
@@ -747,6 +796,9 @@ namespace Vita
             }
         }
 
+        // Wipe stale auto-added entries first so deleted mods don't leave
+        // dangling content= / data= lines that crash the engine on load.
+        pruneAutoDetectedSections();
         autoDetectContent();
         autoDetectModDataDirs();
     }
@@ -833,7 +885,10 @@ namespace Vita
             0,
             SCE_GXM_MULTISAMPLE_NONE);
         vglUseVram(GL_TRUE);
-        vglSetupRuntimeShaderCompiler(SHARK_OPT_FAST, 1, 0, 1);
+        // fp16 in fragment shaders — SGX543 fp16 is full-rate, fp32 half-rate.
+        vglUseLowPrecision(GL_TRUE);
+        // SHARK_OPT_UNSAFE: most aggressive ALU rewrites; HAVE_SHADER_CACHE=1 amortises compile.
+        vglSetupRuntimeShaderCompiler(SHARK_OPT_UNSAFE, 1, 1, 1);
         breadcrumb("BOOT: vitaGL initialized");
 
         // IME sysmodule is loaded later by Vita::initIme()
@@ -958,7 +1013,10 @@ namespace Vita
         Settings::cells().mPreloadDoors.set(false);
         Settings::cells().mPreloadInstances.set(false);
         // Cache size: defaulted from bundled settings.cfg (max=2) so the UI can override.
-        Settings::cells().mCacheExpiryDelay.set(0.25f);
+        // Tighter cache expiry — frees recently-used resources sooner so peak
+        // heap stays lower in dense cities. Cost: occasional texture re-upload
+        // when revisiting an area within 100ms.
+        Settings::cells().mCacheExpiryDelay.set(0.1f);
         Settings::cells().mTargetFramerate.set(30.0f);
         Settings::cells().mPointersCacheSize.set(40);
 

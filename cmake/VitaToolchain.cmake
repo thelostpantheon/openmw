@@ -20,8 +20,12 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -mcpu=cortex-a9 -mfpu=neon" CACHE STRING
 # symbols at link time (GCC 10 LTO slim objects in OSG .a libs are incompatible).
 # NOTE: Do NOT use -ffast-math — generates VFPv4 fused multiply-add (vfma) instructions
 # that don't exist on the Vita's Cortex-A9 (VFPv3 only). Crashes in osg::asciiToDouble.
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG -ftree-vectorize -funroll-loops -fomit-frame-pointer -fno-stack-protector -fipa-icf" CACHE STRING "c++ Release flags" FORCE)
-set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG -ftree-vectorize -funroll-loops -fomit-frame-pointer -fno-stack-protector -fipa-icf" CACHE STRING "c Release flags" FORCE)
+# Math relaxations safe for game math: drop errno from sqrt/log/exp libcalls,
+# allow signed-zero and NaN/INF assumptions to unblock NEON auto-vectorization.
+# Deliberately do NOT enable -funsafe-math-optimizations / -ffast-math (vfma).
+set(_VITA_MATH_FLAGS "-fno-math-errno -fno-trapping-math -fno-signed-zeros -ffinite-math-only")
+set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG -ftree-vectorize -funroll-loops -fomit-frame-pointer -fno-stack-protector -fipa-icf ${_VITA_MATH_FLAGS}" CACHE STRING "c++ Release flags" FORCE)
+set(CMAKE_C_FLAGS_RELEASE "-O2 -DNDEBUG -ftree-vectorize -funroll-loops -fomit-frame-pointer -fno-stack-protector -fipa-icf ${_VITA_MATH_FLAGS}" CACHE STRING "c Release flags" FORCE)
 
 # All-static Vita builds have circular deps between libs (vitaGL ↔ SceGxm,
 # freetype ↔ bz2, avformat ↔ avcodec, etc.). Wrap link with --start/end-group

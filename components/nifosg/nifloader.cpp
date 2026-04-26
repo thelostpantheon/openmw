@@ -2053,6 +2053,21 @@ namespace NifOsg
             image->setMipmapLevels(mipmapOffsets);
             image->flipVertical();
 
+#ifdef __vita__
+            if (image->isCompressed())
+            {
+                osg::ref_ptr<osg::Image> rgbaImage = new osg::Image;
+                rgbaImage->setFileName(image->getFileName());
+                GLenum outFmt = image->isImageTranslucent() ? GL_RGBA : GL_RGB;
+                rgbaImage->allocateImage(image->s(), image->t(), image->r(), outFmt, GL_UNSIGNED_BYTE);
+                for (int s = 0; s < image->s(); ++s)
+                    for (int t = 0; t < image->t(); ++t)
+                        for (int r = 0; r < image->r(); ++r)
+                            rgbaImage->setColor(image->getColor(s, t, r), s, t, r);
+                image = rgbaImage;
+            }
+#endif
+
             return image;
         }
 

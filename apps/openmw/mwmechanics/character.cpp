@@ -3086,6 +3086,16 @@ namespace MWMechanics
         if (!head)
             return;
 
+#ifdef __vita__
+        if (mPtr != getPlayer() && !mPtr.getClass().getCreatureStats(mPtr).getAiSequence().isInCombat())
+        {
+            const osg::Vec3f playerPos = getPlayer().getRefData().getPosition().asVec3();
+            const osg::Vec3f myPos = mPtr.getRefData().getPosition().asVec3();
+            if ((playerPos - myPos).length2() > 1500.f * 1500.f)
+                return;
+        }
+#endif
+
         float zAngleRadians = 0.f;
         float xAngleRadians = 0.f;
 

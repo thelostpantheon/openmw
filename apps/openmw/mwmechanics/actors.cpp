@@ -1506,7 +1506,11 @@ namespace MWMechanics
     {
         if (!paused)
         {
+#ifdef __vita__
+            const float updateEquippedLightInterval = 2.0f;
+#else
             const float updateEquippedLightInterval = 1.0f;
+#endif
 
             if (mTimerUpdateHeadTrack >= 0.3f)
                 mTimerUpdateHeadTrack = 0;
@@ -1629,7 +1633,9 @@ namespace MWMechanics
                                     actor.getPtr(), otherActor.getPtr(), cachedAllies, otherActor.getPtr() == player);
                             }
                         }
-                        if (mTimerUpdateHeadTrack == 0)
+                        // Head tracking does an O(N) scan over all actors per NPC.
+                        // Off-screen NPCs can't be observed → skip when out of LOD range.
+                        if (mTimerUpdateHeadTrack == 0 && !vitaAiLodOutOfRange)
                             updateHeadTracking(actor.getPtr(), mActors, isPlayer, ctrl);
 
                         if (actor.getPtr().getClass().isNpc() && !isPlayer)
@@ -1642,7 +1648,10 @@ namespace MWMechanics
                             {
                                 stats.getAiSequence().execute(actor.getPtr(), ctrl, duration, vitaAiLodOutOfRange);
                                 updateGreetingState(actor.getPtr(), actor, mTimerUpdateHello > 0);
-                                playIdleDialogue(actor.getPtr());
+                                // Idle dialogue is inaudible at LOD range — skip the per-frame
+                                // distance/LOS/RNG checks for distant NPCs.
+                                if (!vitaAiLodOutOfRange)
+                                    playIdleDialogue(actor.getPtr());
                                 updateMovementSpeed(actor.getPtr());
                             }
                         }
