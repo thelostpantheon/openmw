@@ -12,6 +12,8 @@
 #include <osg/MatrixTransform>
 #include "../vita/VitaInit.h"
 #include "../mwrender/vismask.hpp"
+#include "../mwrender/animation.hpp"
+#include "../mwmechanics/aipackage.hpp"
 #include <components/esm3/loadstat.hpp>
 #include <components/vita/VitaShader.h>
 #include <components/vita/CellCullCallback.h>
@@ -572,6 +574,9 @@ namespace MWWorld
             {
                 mRendering.flushUnrefQueueImmediate();
                 mRendering.getResourceSystem()->clearCache();
+                // Static caches that bypass OSG expiry; cleared explicitly.
+                MWMechanics::AiPackage::clearPathgridCache();
+                MWRender::clearAnimationModelCache();
                 s_cachesFlushed = true;
                 char buf[96];
                 snprintf(buf, sizeof(buf), "[MemWatchdog] Cache flush at %dMB (budget %dMB)", usedMB, budget);
@@ -987,6 +992,12 @@ namespace MWWorld
             {
                 while (pending.nextObject < (int)pending.objectsToInsert.size() && budget > 0)
                 {
+                    // Per-object recheck: bursts can blow the per-frame budget.
+                    if (Vita::isMemoryPressure(getVitaCellBudgetMB()))
+                    {
+                        Vita::breadcrumb("[DeferredLoad] Mid-burst pause: memory pressure");
+                        break;
+                    }
                     MWWorld::Ptr& ptr = pending.objectsToInsert[pending.nextObject];
                     if (!ptr.mRef->isDeleted() && ptr.getRefData().isEnabled()
                         && !ptr.getRefData().getBaseNode())

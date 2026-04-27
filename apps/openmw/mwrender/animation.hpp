@@ -521,5 +521,8 @@ namespace MWRender
     private:
         double mStartingTime;
     };
+
+    /// Drop the cached base-model skeleton nodes; recreated lazily.
+    void clearAnimationModelCache();
 }
 #endif

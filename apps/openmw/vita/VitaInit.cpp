@@ -39,7 +39,7 @@
 // newlib crt0 resolve them as unmangled C symbols at process startup.
 extern "C" {
 // Extra memory mode (ATTRIBUTE2=12) grants ~357MB total user RAM.
-unsigned int _newlib_heap_size_user = 256 * 1024 * 1024;
+unsigned int _newlib_heap_size_user = 272 * 1024 * 1024;
 unsigned int sceUserMainThreadStackSize = 2 * 1024 * 1024;
 
 // Write an unsigned int as decimal to fd (no heap allocation)

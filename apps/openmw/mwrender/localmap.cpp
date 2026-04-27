@@ -664,6 +664,13 @@ namespace MWRender
         if (!mFogOfWarImage)
             return;
 
+#ifdef __vita__
+        // libpng's internal mallocs intermittently abort under heap pressure;
+        // OSG's writer crashes inside the encoder. Skip persistence — fog
+        // regenerates as the player explores on next session.
+        return;
+#endif
+
         std::ostringstream ostream;
 
         osgDB::ReaderWriter* readerwriter = osgDB::Registry::instance()->getReaderWriterForExtension("png");

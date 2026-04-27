@@ -9,6 +9,8 @@
 #ifdef __vita__
 #include "../vita/VitaInit.h"
 #include "../mwrender/renderingmanager.hpp"
+#include "../mwrender/animation.hpp"
+#include "../mwmechanics/aipackage.hpp"
 #include <components/resource/resourcesystem.hpp>
 #define VITA_CRUMB(msg) Vita::breadcrumb(msg)
 #else
@@ -232,6 +234,19 @@ void MWState::StateManager::resumeGame()
 void MWState::StateManager::saveGame(std::string_view description, const Slot* slot)
 {
     MWBase::Environment::get().getLuaManager()->applyDelayedActions();
+
+#ifdef __vita__
+    // libpng's internal mallocs fail under heap pressure during save thumbnail
+    // and fog-of-war PNG writes; OSG's writer doesn't NULL-check png_ptr.
+    // Force-flush caches AND the unref queue so libpng has room to allocate.
+    if (auto* rm = MWBase::Environment::get().getWorld()->getRenderingManager())
+        rm->flushUnrefQueueImmediate();
+    MWBase::Environment::get().getResourceSystem()->clearCache();
+    MWMechanics::AiPackage::clearPathgridCache();
+    MWRender::clearAnimationModelCache();
+    if (auto* rm = MWBase::Environment::get().getWorld()->getRenderingManager())
+        rm->flushUnrefQueueImmediate();
+#endif
 
     MWState::Character* character = getCurrentCharacter();
 

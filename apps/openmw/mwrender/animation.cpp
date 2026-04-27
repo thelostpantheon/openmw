@@ -446,6 +446,13 @@ namespace
 
 namespace MWRender
 {
+    std::map<std::string, osg::ref_ptr<osg::Node>> sAnimationModelCache;
+
+    void clearAnimationModelCache()
+    {
+        sAnimationModelCache.clear();
+    }
+
     class TransparencyUpdater : public SceneUtil::StateSetUpdater
     {
     public:
@@ -1521,10 +1528,8 @@ namespace MWRender
         Resource::SceneManager* sceneMgr = resourceSystem->getSceneManager();
         if (baseonly)
         {
-            typedef std::map<std::string, osg::ref_ptr<osg::Node>> Cache;
-            static Cache cache;
-            Cache::iterator found = cache.find(model);
-            if (found == cache.end())
+            auto found = sAnimationModelCache.find(model);
+            if (found == sAnimationModelCache.end())
             {
                 osg::ref_ptr<osg::Node> created = sceneMgr->getInstance(VFS::Path::toNormalized(model));
 
@@ -1538,7 +1543,7 @@ namespace MWRender
                 created->accept(removeDrawableVisitor);
                 removeDrawableVisitor.remove();
 
-                cache.insert(std::make_pair(model, created));
+                sAnimationModelCache.insert(std::make_pair(model, created));
 
                 return sceneMgr->getInstance(created);
             }
