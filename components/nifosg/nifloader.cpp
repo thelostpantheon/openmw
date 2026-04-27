@@ -1086,6 +1086,10 @@ namespace NifOsg
             osg::ref_ptr<osg::Texture2D> texture2d = new osg::Texture2D(image);
             if (image)
                 texture2d->setTextureSize(image->s(), image->t());
+#ifdef __vita__
+            // NIF-loaded textures bypass SceneManager's unref flag, so set it directly.
+            texture2d->setUnRefImageDataAfterApply(true);
+#endif
             texture2d->setWrap(osg::Texture::WRAP_S, wrapS ? osg::Texture::REPEAT : osg::Texture::CLAMP_TO_EDGE);
             texture2d->setWrap(osg::Texture::WRAP_T, wrapT ? osg::Texture::REPEAT : osg::Texture::CLAMP_TO_EDGE);
             auto texUnit = static_cast<unsigned int>(boundTextures.size());

@@ -99,6 +99,10 @@ namespace
 
     std::vector<char> writePng(const osg::Image& overlayImage)
     {
+#ifdef __vita__
+        // libpng aborts under heap pressure; skip overlay persistence on Vita.
+        return std::vector<char>();
+#endif
         std::ostringstream ostream;
         osgDB::ReaderWriter* readerwriter = osgDB::Registry::instance()->getReaderWriterForExtension("png");
         if (!readerwriter)
