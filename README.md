@@ -36,6 +36,10 @@ AI Usage: AI Assisted (Dependency/Build system detangling, other odds ends and a
 - Copy your Morrowind.ini `ux0:data/openmw/`:
 - Launch from the home screen (first boot is slow while shaders compile)
 
+- Note to Mac OS users. 
+  - Double check your file transfers dont auto add an '_' to the beginning of a file name.
+  - If they do please delete that file or you will have errors on boot
+
 ### Controls
 
 | Input                              | Action |
