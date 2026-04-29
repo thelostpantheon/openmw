@@ -134,7 +134,8 @@ vita-docs/
 /crash/
 *.psp2dmp
 boot.log
-debug.log
+debug.logYes p
 openmw*.elf
 openmw*.velf
 /apt-cache/
+/vita-deps-build/
