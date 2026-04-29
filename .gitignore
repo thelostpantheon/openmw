@@ -129,6 +129,7 @@ components/version/version.cpp.out
 *.velf
 *.bin
 eboot*.bin
+!apps/openmw/vita/vfs_seed/*.bin
 build-vita-optimized.sh
 vita-docs/
 /crash/

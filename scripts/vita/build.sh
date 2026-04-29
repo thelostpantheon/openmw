@@ -90,7 +90,7 @@ if [ ! -f "${ICU_HOST}/bin/icupkg" ]; then
     "${ICU_FETCH_DIR}/icu4c/source/configure" \
         --enable-static --disable-shared \
         --disable-extras --disable-tests --disable-samples --disable-icuio
-    make -j$(nproc | awk '{print ($1 > 8) ? 8 : $1}')
+    make -j$(nproc)
 
     # Validate host build
     if [ ! -f "${ICU_HOST}/bin/icupkg" ]; then
@@ -131,11 +131,11 @@ cmake -DCMAKE_TOOLCHAIN_FILE="${SRC_DIR}/cmake/VitaToolchain.cmake" \
 
 # Build full OSG (osgParticle/osgShadow needed but not in USED_OSG_COMPONENTS)
 echo "=== Building OSG ==="
-make -C _deps/osg-build -j$(nproc | awk '{print ($1 > 8) ? 8 : $1}')
+make -C _deps/osg-build -j$(nproc)
 
 # Build eboot.bin
 echo "=== Building OpenMW ==="
-make -j$(nproc | awk '{print ($1 > 8) ? 8 : $1}') eboot.bin-self
+make -j$(nproc) eboot.bin-self
 
 # Build VPK (needed for ATTRIBUTE2 extra memory mode)
 echo "=== Building VPK ==="
