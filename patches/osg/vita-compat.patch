@@ -62,7 +62,7 @@ Vita compatibility patch for OpenSceneGraph (OSG):
          #if defined(OSG_GLES1_AVAILABLE)
              static void *handle = dlopen("libGLESv1_CM.so", RTLD_NOW);
          #elif defined(OSG_GLES2_AVAILABLE)
-@@ -1156,7 +1167,9 @@
+@@ -1156,5 +1167,7 @@
          glFramebufferTexture2D != 0 &&
          glFramebufferRenderbuffer != 0 &&
          glGenerateMipmap != 0 &&
