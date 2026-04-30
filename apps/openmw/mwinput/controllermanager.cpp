@@ -84,32 +84,59 @@ namespace MWInput
 
     void ControllerManager::update(float dt)
     {
-        if (mGuiCursorEnabled && !(mJoystickLastUsed && !mGamepadGuiCursorEnabled))
+        if (mGuiCursorEnabled)
         {
-            float xAxis = mBindingsManager->getActionValue(A_MoveLeftRight) * 2.0f - 1.0f;
-            float yAxis = mBindingsManager->getActionValue(A_MoveForwardBackward) * 2.0f - 1.0f;
-            float zAxis = mBindingsManager->getActionValue(A_LookUpDown) * 2.0f - 1.0f;
+            MWBase::WindowManager* winMgr = MWBase::Environment::get().getWindowManager();
+            // Cursor movement from the left stick is only allowed when the
+            // current window permits a gamepad-driven cursor.
+            const bool allowCursorMove = !(mJoystickLastUsed && !mGamepadGuiCursorEnabled);
+            // Wheel events should still fire whenever a cursor is visible — even
+            // in windows that disable gamepad cursor (e.g. dialogue), the user
+            // may have summoned the cursor via touch / left-stick on a window
+            // that does allow it, or via an external mouse. Without this,
+            // hovering a sibling scrollable and right-stick'ing does nothing.
+            const bool allowWheel = allowCursorMove || winMgr->getCursorVisible();
 
-            xAxis *= (1.5f - mBindingsManager->getActionValue(A_Use));
-            yAxis *= (1.5f - mBindingsManager->getActionValue(A_Use));
-
-            // We keep track of our own mouse position, so that moving the mouse while in
-            // game mode does not move the position of the GUI cursor
-            float uiScale = MWBase::Environment::get().getWindowManager()->getScalingFactor();
-            const float gamepadCursorSpeed = Settings::input().mGamepadCursorSpeed;
-            const float xMove = xAxis * dt * 1500.0f / uiScale * gamepadCursorSpeed;
-            const float yMove = yAxis * dt * 1500.0f / uiScale * gamepadCursorSpeed;
-
-#ifdef __vita__
-            float mouseWheelMove = -zAxis * dt * 300.0f;
-#else
-            float mouseWheelMove = -zAxis * dt * 1500.0f;
-#endif
-            if (xMove != 0 || yMove != 0 || mouseWheelMove != 0)
+            if (allowCursorMove || allowWheel)
             {
-                mMouseManager->injectMouseMove(xMove, yMove, mouseWheelMove);
-                mMouseManager->warpMouse();
-                MWBase::Environment::get().getWindowManager()->setCursorActive(true);
+                float xAxis = mBindingsManager->getActionValue(A_MoveLeftRight) * 2.0f - 1.0f;
+                float yAxis = mBindingsManager->getActionValue(A_MoveForwardBackward) * 2.0f - 1.0f;
+                float zAxis = mBindingsManager->getActionValue(A_LookUpDown) * 2.0f - 1.0f;
+
+                float xMove = 0.f;
+                float yMove = 0.f;
+                if (allowCursorMove)
+                {
+                    xAxis *= (1.5f - mBindingsManager->getActionValue(A_Use));
+                    yAxis *= (1.5f - mBindingsManager->getActionValue(A_Use));
+                    const float uiScale = winMgr->getScalingFactor();
+                    const float gamepadCursorSpeed = Settings::input().mGamepadCursorSpeed;
+                    xMove = xAxis * dt * 1500.0f / uiScale * gamepadCursorSpeed;
+                    yMove = yAxis * dt * 1500.0f / uiScale * gamepadCursorSpeed;
+                }
+
+                float mouseWheelMove = 0.f;
+                if (allowWheel)
+                {
+#ifdef __vita__
+                    mouseWheelMove = -zAxis * dt * 300.0f;
+#else
+                    mouseWheelMove = -zAxis * dt * 1500.0f;
+#endif
+                }
+
+                if (xMove != 0 || yMove != 0 || mouseWheelMove != 0)
+                {
+                    mMouseManager->injectMouseMove(xMove, yMove, mouseWheelMove);
+                    // Only re-warp the OS cursor when the cursor actually moved.
+                    // Wheel-only frames (right-stick scrolling) shouldn't warp; SDL's
+                    // WarpMouse can emit a synthetic SDL_MOUSEMOTION event that
+                    // makes MyGUI re-evaluate the mouse-focus widget, causing the
+                    // scroll target to flip between sibling scrollables.
+                    if (xMove != 0 || yMove != 0)
+                        mMouseManager->warpMouse();
+                    winMgr->setCursorActive(true);
+                }
             }
         }
 
@@ -294,13 +321,16 @@ namespace MWInput
 
         if (Settings::gui().mControllerMenus)
         {
-            // Update cursor state.
-            bool treatAsMouse = winMgr->getCursorVisible();
-            winMgr->setCursorActive(false);
-
+            // Decide the role of this press before touching cursor state. If A is
+            // going to fall through as a left-click, keep the cursor visible — the
+            // user is in cursor-driven mode. Any other button means the user is
+            // using menu navigation, so hide the cursor.
+            const bool cursorVisible = winMgr->getCursorVisible();
             MWGui::WindowBase* topWin = winMgr->getActiveControllerWindow();
+
             if (topWin && topWin->isVisible())
             {
+                bool treatAsMouse = cursorVisible;
                 // When the inventory tooltip is visible, we don't actually want the A button to
                 // act like a mouse button; it should act normally.
                 if (treatAsMouse && arg.button == SDL_CONTROLLER_BUTTON_A && winMgr->getControllerTooltipVisible())
@@ -308,12 +338,19 @@ namespace MWInput
 
                 mGamepadGuiCursorEnabled = topWin->isGamepadCursorAllowed();
 
-                // Fall through to mouse click
+                // Fall through to mouse click — leave cursor active for the next press.
                 if (mGamepadGuiCursorEnabled && treatAsMouse && arg.button == SDL_CONTROLLER_BUTTON_A)
                     return false;
 
+                // Switching to menu navigation; hide the cursor.
+                winMgr->setCursorActive(false);
+
                 if (topWin->onControllerButtonEvent(arg))
                     return true;
+            }
+            else
+            {
+                winMgr->setCursorActive(false);
             }
         }
 
@@ -399,9 +436,16 @@ namespace MWInput
             MWGui::WindowBase* topWin = winMgr->getActiveControllerWindow();
             if (topWin && topWin->isVisible())
             {
-                // Update cursor state
+                // Update cursor state. Only hide the cursor for cursor-driving
+                // (left-stick) input — right-stick events are scroll-only and
+                // shouldn't yank a touch- or left-stick-summoned cursor away
+                // mid-scroll. Without this guard, dialogue (which sets
+                // mDisableGamepadCursor=true) hides the cursor on every right-stick
+                // tick and the scroll target can flip between sibling scrollables.
                 mGamepadGuiCursorEnabled = topWin->isGamepadCursorAllowed();
-                if (!mGamepadGuiCursorEnabled)
+                const bool isCursorStick = (arg.axis == SDL_CONTROLLER_AXIS_LEFTX
+                                            || arg.axis == SDL_CONTROLLER_AXIS_LEFTY);
+                if (!mGamepadGuiCursorEnabled && isCursorStick)
                     winMgr->setCursorActive(false);
 
                 // Deadzone check
@@ -424,8 +468,15 @@ namespace MWInput
                     return false;
                 }
 
-                // Some windows have a specific widget to scroll with the right stick. Move the mouse there.
-                if (arg.axis == SDL_CONTROLLER_AXIS_RIGHTY && topWin->getControllerScrollWidget() != nullptr)
+                // Some windows have a specific widget to scroll with the right stick.
+                // Only auto-warp the cursor to that widget in controller-only mode —
+                // when the cursor is already visible (mouse-driven), scrolling should
+                // target whatever's under the cursor via the wheel-injection path in
+                // update(). Otherwise users hovering a sibling scrollable (e.g. the
+                // dialogue topics list) would have the cursor yanked away to the
+                // designated widget on every right-stick tick.
+                if (arg.axis == SDL_CONTROLLER_AXIS_RIGHTY && topWin->getControllerScrollWidget() != nullptr
+                    && !winMgr->getCursorVisible())
                 {
                     mMouseManager->warpMouseToWidget(topWin->getControllerScrollWidget());
                     winMgr->setCursorVisible(false);

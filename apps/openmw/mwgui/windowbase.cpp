@@ -113,20 +113,33 @@ void WindowBase::setActiveControllerWindow(bool active)
         MWBase::WindowManager* wm = MWBase::Environment::get().getWindowManager();
         if (!wm)
             return;
-        int maxHeight = wm->getControllerMenuHeight();
+        // Inventory-tabs and controller-buttons overlays are equal height, so
+        // split the reserved space evenly when both are active (GM_Inventory),
+        // else attribute it all to the bottom.
+        const int viewHeight = MyGUI::RenderManager::getInstance().getViewSize().height;
+        const int reserved = viewHeight - wm->getControllerMenuHeight();
+        const int reservedTop = (wm->getMode() == GM_Inventory) ? (reserved / 2) : 0;
+        const int safeBottom = viewHeight - (reserved - reservedTop);
+
         MyGUI::IntCoord coord = mMainWidget->getCoord();
-        int bottom = coord.top + coord.height;
-        if (bottom > maxHeight)
+        bool changed = false;
+
+        // If the window extends past the bottom overlay, push it up.
+        if (coord.top + coord.height > safeBottom)
         {
-            int newTop = maxHeight - coord.height;
-            if (newTop < 0)
-            {
-                newTop = 0;
-                coord.height = maxHeight;
-            }
-            coord.top = newTop;
-            mMainWidget->setCoord(coord);
+            coord.top = safeBottom - coord.height;
+            changed = true;
         }
+        // If after that the window is above the top overlay, shrink it to fit.
+        if (coord.top < reservedTop)
+        {
+            const int overshoot = reservedTop - coord.top;
+            coord.top = reservedTop;
+            coord.height = std::max(0, coord.height - overshoot);
+            changed = true;
+        }
+        if (changed)
+            mMainWidget->setCoord(coord);
     }
 #endif
 }

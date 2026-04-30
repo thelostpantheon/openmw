@@ -354,14 +354,9 @@ namespace MWGui
         , mCallback(std::make_unique<ResponseCallback>(this))
         , mGreetingCallback(std::make_unique<ResponseCallback>(this, false))
     {
-        // Centre dialog
+        // Centre dialog (size/pos will be reapplied by WindowManager::trackWindow
+        // from Settings::windows().mDialogue* — see VitaInit.cpp for Vita defaults).
         center();
-#ifdef __vita__
-        // Shift up so the window clears the contextual button bar at the bottom.
-        MyGUI::IntCoord coord = mMainWidget->getCoord();
-        coord.top = std::max(0, coord.top - 28);
-        mMainWidget->setCoord(coord);
-#endif
 
         mPersuasionDialog.setVisible(false);
 
