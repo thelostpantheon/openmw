@@ -94,10 +94,13 @@ static void countDrawables(const osg::Node* node, unsigned int& drawableCount, u
 #include "player.hpp"
 #include "worldimp.hpp"
 
+#ifdef __vita__
+extern "C" unsigned int _newlib_heap_size_user;
+#endif
+
 namespace
 {
 #ifdef __vita__
-    extern "C" unsigned int _newlib_heap_size_user;
     int getVitaCellBudgetMB()
     {
         // Use the configured heap size (not mallinfo.arena which is consumed, not total).

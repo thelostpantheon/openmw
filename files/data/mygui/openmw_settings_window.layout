@@ -870,14 +870,14 @@
                         <Property key="Caption" value="Font Size"/>
                     </Widget>
                     <Widget type="ScrollBar" skin="MW_HScroll" position="0 16 352 14" align="Left Top HStretch">
-                        <Property key="Range" value="11"/>
+                        <Property key="Range" value="21"/>
                         <Property key="Page" value="1"/>
                         <UserString key="SettingType" value="Slider"/>
                         <UserString key="SettingCategory" value="GUI"/>
                         <UserString key="SettingName" value="font size"/>
                         <UserString key="SettingValueType" value="Integer"/>
                         <UserString key="SettingMin" value="12"/>
-                        <UserString key="SettingMax" value="22"/>
+                        <UserString key="SettingMax" value="32"/>
                         <UserString key="SettingLabelWidget" value="VitaFontText"/>
                         <UserString key="SettingLabelCaption" value="VitaFontValue"/>
                     </Widget>

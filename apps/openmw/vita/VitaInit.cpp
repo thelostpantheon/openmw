@@ -407,6 +407,62 @@ namespace Vita
     // scan passes write fresh entries based on current disk state, so deleting
     // a mod folder cleanly removes its content/data lines instead of leaving
     // dangling references that crash the engine.
+    // Cookie for the auto-detect scans. Stores the mtimes of the two folders
+    // we walk; if both are unchanged, the previously-written # Auto-detected
+    // sections in user openmw.cfg are still valid and we can skip the scans.
+    struct ModsScanCookie
+    {
+        SceDateTime modsMtime;
+        SceDateTime dataFilesMtime;
+    };
+
+    static const char* kModsScanCookiePath = "ux0:data/openmw/config/mods_scan.cookie";
+
+    static bool fetchDirMtime(const char* path, SceDateTime* out)
+    {
+        SceIoStat s{};
+        if (sceIoGetstat(path, &s) < 0)
+            return false;
+        *out = s.st_mtime;
+        return true;
+    }
+
+    static bool readModsScanCookie(ModsScanCookie* out)
+    {
+        SceUID fd = sceIoOpen(kModsScanCookiePath, SCE_O_RDONLY, 0);
+        if (fd < 0)
+            return false;
+        int n = sceIoRead(fd, out, sizeof(*out));
+        sceIoClose(fd);
+        return n == (int)sizeof(*out);
+    }
+
+    static void writeModsScanCookie()
+    {
+        ModsScanCookie cookie{};
+        fetchDirMtime("ux0:data/openmw/mods", &cookie.modsMtime);
+        fetchDirMtime("ux0:data/openmw/Data Files", &cookie.dataFilesMtime);
+        SceUID fd = sceIoOpen(kModsScanCookiePath, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
+        if (fd >= 0)
+        {
+            sceIoWrite(fd, &cookie, sizeof(cookie));
+            sceIoClose(fd);
+        }
+    }
+
+    static bool modsScanCookieMatchesCurrent()
+    {
+        ModsScanCookie current{};
+        if (!fetchDirMtime("ux0:data/openmw/mods", &current.modsMtime))
+            return false;
+        if (!fetchDirMtime("ux0:data/openmw/Data Files", &current.dataFilesMtime))
+            return false;
+        ModsScanCookie saved{};
+        if (!readModsScanCookie(&saved))
+            return false;
+        return memcmp(&current, &saved, sizeof(current)) == 0;
+    }
+
     static void pruneAutoDetectedSections()
     {
         static const char* cfgPath = "ux0:data/openmw/config/openmw.cfg";
@@ -551,7 +607,9 @@ namespace Vita
         free(found);
     }
 
-    // True if `dir` has a Meshes/ or Textures/ subdirectory.
+    // True if `dir` has a Meshes/Textures subdirectory, OR contains any plugin
+    // file (.esm/.esp/.omwaddon/.omwscripts) directly. Plugin-only mods
+    // (e.g. ESP-only gameplay tweaks) need the second case.
     static bool isDataRoot(const char* dir)
     {
         static const char* const subdirs[] = {
@@ -568,6 +626,29 @@ namespace Vita
                 sceIoDclose(sd);
                 return true;
             }
+        }
+
+        SceUID dd = sceIoDopen(dir);
+        if (dd >= 0)
+        {
+            SceIoDirent ent{};
+            while (sceIoDread(dd, &ent) > 0)
+            {
+                if (ent.d_name[0] == '.' || SCE_S_ISDIR(ent.d_stat.st_mode))
+                {
+                    memset(&ent, 0, sizeof(ent));
+                    continue;
+                }
+                if (hasExtension(ent.d_name, ".esm") || hasExtension(ent.d_name, ".esp")
+                    || hasExtension(ent.d_name, ".omwaddon")
+                    || hasExtension(ent.d_name, ".omwscripts"))
+                {
+                    sceIoDclose(dd);
+                    return true;
+                }
+                memset(&ent, 0, sizeof(ent));
+            }
+            sceIoDclose(dd);
         }
         return false;
     }
@@ -868,11 +949,22 @@ namespace Vita
             }
         }
 
-        // Wipe stale auto-added entries first so deleted mods don't leave
-        // dangling content= / data= lines that crash the engine on load.
-        pruneAutoDetectedSections();
-        autoDetectContent();
-        autoDetectModDataDirs();
+        // Skip the scans entirely if neither watched folder has changed since
+        // the last successful scan. Holding SELECT at boot bypasses the cookie
+        // (matches the existing VFS-cache invalidation gesture).
+        if (!isSelectHeld() && modsScanCookieMatchesCurrent())
+        {
+            breadcrumb("Mod scan: cache hit, skipping filesystem walk");
+        }
+        else
+        {
+            // Wipe stale auto-added entries first so deleted mods don't leave
+            // dangling content= / data= lines that crash the engine on load.
+            pruneAutoDetectedSections();
+            autoDetectContent();
+            autoDetectModDataDirs();
+            writeModsScanCookie();
+        }
     }
 
     void initClocks()
@@ -1024,10 +1116,9 @@ namespace Vita
         Settings::shaders().mWeatherParticleOcclusion.set(false);
         Settings::shaders().mAntialiasAlphaTest.set(false);
         Settings::shaders().mAdjustCoverageForAlphaTest.set(false);
-        Settings::shaders().mMaxLights.set(2);
-        Settings::shaders().mMaximumLightDistance.set(2048.0f);
-        Settings::shaders().mLightFadeStart.set(0.85f);
-        Settings::shaders().mLightBoundsMultiplier.set(1.0f);
+        // NOTE: mMaxLights / mMaximumLightDistance / mLightFadeStart /
+        // mLightBoundsMultiplier are NOT forced — bundled settings.cfg provides
+        // Vita-tuned defaults but users can adjust via in-game Settings menu.
 
         // --- Shadows: fully disabled ---
         Settings::shadows().mEnableShadows.set(false);
@@ -1035,23 +1126,14 @@ namespace Vita
         // --- Post-processing: disabled ---
         Settings::postProcessing().mEnabled.set(false);
 
-        // --- Terrain: maximum LOD reduction, no distant terrain/object paging ---
-        // Object paging requires QuadTreeWorld (distant terrain), which adds significant
-        // memory overhead. Cross-object STAT merge + small feature culling provide similar
-        // draw call reduction without the memory cost.
-        Settings::terrain().mDistantTerrain.set(false);
-        Settings::terrain().mLodFactor.set(12.0f);                // more aggressive LOD for better performance
-        Settings::terrain().mObjectPaging.set(false);
-        Settings::terrain().mObjectPagingActiveGrid.set(false);
-        Settings::terrain().mCompositeMapResolution.set(32);      // lower resolution terrain textures
+        // --- Terrain: NOT forced — bundled settings.cfg supplies the conservative
+        //     defaults (LOD 12, distant terrain off, object paging off, composite
+        //     map res 32). Users tuning these via the Settings menu now persist.
 
-        // --- Camera: draw distance balanced for playability ---
-        Settings::camera().mViewingDistance.set(2048.0f);
+        // --- Camera: only the technical bits are forced (no reverse-Z on vitaGL).
+        //     Viewing distance, FOV, small feature culling, dynamic fog are
+        //     left as defaults from bundled settings.cfg so users can tune them.
         Settings::camera().mReverseZ.set(false);
-        Settings::camera().mSmallFeatureCulling.set(true);
-        Settings::camera().mSmallFeatureCullingPixelSize.set(4.0f);
-        Settings::camera().mFieldOfView.set(45.0f);
-        Settings::camera().mVitaDynamicFog.set(true);
 
         // --- Water: minimal quality ---
         Settings::water().mShader.set(false);
@@ -1065,32 +1147,21 @@ namespace Vita
         Settings::fog().mExponentialFog.set(false);
         Settings::fog().mSkyBlending.set(false);
 
-        // --- Game: actor processing range controls NPC visibility ---
-        // Actors beyond this get setNodeMask(0) = invisible.
-        // Must be >= viewing distance for NPCs to stay visible at draw distance.
-        Settings::game().mActorsProcessingRange.set(3584);        // minimum allowed value
+        // --- Game: actor processing range — not forced; default in cfg is 3584.
 
         // --- Physics: async. Lua-vs-physics contention is avoided by
         // running Lua on the main thread (see Lua settings below).
         Settings::physics().mAsyncNumThreads.set(1);
 
-        // --- Cells: preload exterior grid only, conservative cache ---
-        // Async preload runs on its own thread; ICO compile ops run on the
-        // main GL thread so this is safe even though vitaGL can't handle
-        // multi-thread draws. Goal: hide cell-transition stutter.
+        // --- Cells: technical baseline only — preload + threading are required
+        //     for Vita stability. Cache size / expiry / framerate target are
+        //     left to bundled defaults so they're user-tunable.
         Settings::cells().mPreloadEnabled.set(true);
         Settings::cells().mPreloadNumThreads.set(1);
         Settings::cells().mPreloadExteriorGrid.set(true);
         Settings::cells().mPreloadFastTravel.set(false);
         Settings::cells().mPreloadDoors.set(false);
         Settings::cells().mPreloadInstances.set(false);
-        // Cache size: defaulted from bundled settings.cfg (max=2) so the UI can override.
-        // Tighter cache expiry — frees recently-used resources sooner so peak
-        // heap stays lower in dense cities. Cost: occasional texture re-upload
-        // when revisiting an area within 100ms.
-        Settings::cells().mCacheExpiryDelay.set(0.1f);
-        Settings::cells().mTargetFramerate.set(30.0f);
-        Settings::cells().mPointersCacheSize.set(40);
 
         // --- Navigator: completely disabled ---
         Settings::navigator().mEnable.set(false);
@@ -1099,31 +1170,80 @@ namespace Vita
         Settings::lua().mLuaNumThreads.set(0);
         Settings::lua().mMemoryLimit.set(static_cast<std::uint64_t>(32 * 1024 * 1024));
         Settings::lua().mLuaProfiler.set(false);
-        // Halve GC step count — default 100 steps/frame adds ~0.5 ms on Vita.
-        Settings::lua().mGcStepsPerFrame.set(50);
+        // NOTE: mGcStepsPerFrame is NOT forced — default of 50 is in cfg, user
+        // can tune for their performance tradeoff.
 
-        // --- General: texture quality ---
-        Settings::general().mAnisotropy.set(0);
+        // --- General: anisotropy not forced (defaults to 0 in cfg).
 
-        // --- Map: reduced resolution to save RAM ---
-        Settings::map().mLocalMapResolution.set(64);
-        Settings::map().mLocalMapWidgetSize.set(128);
-        Settings::map().mGlobalMapCellSize.set(4);
+        // --- Map: resolution / widget size not forced (defaults in cfg).
 
-        // --- GUI: scale for 960x544 screen, enable controller menus ---
+        // --- GUI: only Vita-required bits. Font size is user-tunable via the
+        //     in-game Settings menu (slider 12-32) — bundled cfg has 16 default.
         Settings::gui().mScalingFactor.set(0.8f);
-        Settings::gui().mFontSize.set(18);
         Settings::gui().mControllerMenus.set(true);
 
         // --- Groundcover: disabled ---
         Settings::groundcover().mEnabled.set(false);
 
-        // --- Sound: minimal buffer cache ---
-        Settings::sound().mBufferCacheMin.set(1);
-        Settings::sound().mBufferCacheMax.set(4);
+        // --- Sound: buffer cache not forced (defaults in cfg).
 
         // --- Stereo: disabled ---
         Settings::stereo().mStereoEnabled.set(false);
+
+        // --- Windows: 4-quadrant layout for inventory mode, fitting between the
+        //     top tab strip and bottom controller-buttons overlay (each ~7% of
+        //     the 1200×680 logical viewport). Forced every boot.
+        Settings::windows().mStatsX.set(0.015f);
+        Settings::windows().mStatsY.set(0.075f);
+        Settings::windows().mStatsW.set(0.475f);
+        Settings::windows().mStatsH.set(0.42f);
+        Settings::windows().mStatsMaximizedX.set(0.015f);
+        Settings::windows().mStatsMaximizedY.set(0.075f);
+        Settings::windows().mStatsMaximizedW.set(0.97f);
+        Settings::windows().mStatsMaximizedH.set(0.85f);
+        Settings::windows().mMapX.set(0.51f);
+        Settings::windows().mMapY.set(0.075f);
+        Settings::windows().mMapW.set(0.475f);
+        Settings::windows().mMapH.set(0.42f);
+        Settings::windows().mMapMaximizedX.set(0.015f);
+        Settings::windows().mMapMaximizedY.set(0.075f);
+        Settings::windows().mMapMaximizedW.set(0.97f);
+        Settings::windows().mMapMaximizedH.set(0.85f);
+        Settings::windows().mInventoryX.set(0.015f);
+        Settings::windows().mInventoryY.set(0.505f);
+        Settings::windows().mInventoryW.set(0.475f);
+        Settings::windows().mInventoryH.set(0.42f);
+        Settings::windows().mInventoryMaximizedX.set(0.015f);
+        Settings::windows().mInventoryMaximizedY.set(0.075f);
+        Settings::windows().mInventoryMaximizedW.set(0.97f);
+        Settings::windows().mInventoryMaximizedH.set(0.85f);
+        Settings::windows().mSpellsX.set(0.51f);
+        Settings::windows().mSpellsY.set(0.505f);
+        Settings::windows().mSpellsW.set(0.475f);
+        Settings::windows().mSpellsH.set(0.42f);
+        Settings::windows().mSpellsMaximizedX.set(0.015f);
+        Settings::windows().mSpellsMaximizedY.set(0.075f);
+        Settings::windows().mSpellsMaximizedW.set(0.97f);
+        Settings::windows().mSpellsMaximizedH.set(0.85f);
+
+        // Dialogue + settings: nearly fullscreen with a small margin on three sides
+        // and the controller-buttons overlay reserved at the bottom.
+        Settings::windows().mDialogueX.set(0.015f);
+        Settings::windows().mDialogueY.set(0.025f);
+        Settings::windows().mDialogueW.set(0.97f);
+        Settings::windows().mDialogueH.set(0.88f);
+        Settings::windows().mDialogueMaximizedX.set(0.015f);
+        Settings::windows().mDialogueMaximizedY.set(0.025f);
+        Settings::windows().mDialogueMaximizedW.set(0.97f);
+        Settings::windows().mDialogueMaximizedH.set(0.88f);
+        Settings::windows().mSettingsX.set(0.015f);
+        Settings::windows().mSettingsY.set(0.025f);
+        Settings::windows().mSettingsW.set(0.97f);
+        Settings::windows().mSettingsH.set(0.88f);
+        Settings::windows().mSettingsMaximizedX.set(0.015f);
+        Settings::windows().mSettingsMaximizedY.set(0.025f);
+        Settings::windows().mSettingsMaximizedW.set(0.97f);
+        Settings::windows().mSettingsMaximizedH.set(0.88f);
 
         debugLog("Vita platform defaults applied.");
         logMemoryStatus("Post-defaults");

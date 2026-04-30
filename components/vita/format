@@ -11,6 +11,13 @@
 #ifndef _OPENMW_VITA_FORMAT_H_
 #define _OPENMW_VITA_FORMAT_H_
 
+// On GCC 13+ the real <format> is available — let it win and skip the stub.
+#if defined(__has_include_next) && __has_include_next(<format>)
+#  include_next <format>
+#endif
+
+#ifndef __cpp_lib_format
+
 #include <string>
 #include <sstream>
 #include <string_view>
@@ -183,5 +190,7 @@ namespace std
         return os.str();
     }
 }
+
+#endif // !__cpp_lib_format
 
 #endif

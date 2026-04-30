@@ -129,12 +129,14 @@ components/version/version.cpp.out
 *.velf
 *.bin
 eboot*.bin
+!apps/openmw/vita/vfs_seed/*.bin
 build-vita-optimized.sh
 vita-docs/
 /crash/
 *.psp2dmp
 boot.log
-debug.log
+debug.logYes p
 openmw*.elf
 openmw*.velf
 /apt-cache/
+/vita-deps-build/

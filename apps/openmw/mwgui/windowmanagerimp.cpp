@@ -1971,11 +1971,16 @@ namespace MWGui
 
     void WindowManager::onWindowChangeCoord(MyGUI::Window* window)
     {
-        // If using controller menus, don't persist changes to size of the stats or magic
-        // windows.
+        // If using controller menus, don't persist runtime resizes of windows whose
+        // size+position is forced by Vita defaults (applySettingsOverrides). Without
+        // this, MinSize-bumps and centering logic write garbage back into
+        // Settings::windows().* and the values drift across sessions.
         if (Settings::gui().mControllerMenus
             && (window == mStatsWindow->mMainWidget->castType<MyGUI::Window>()
-                || window == mSpellWindow->mMainWidget->castType<MyGUI::Window>()))
+                || window == mSpellWindow->mMainWidget->castType<MyGUI::Window>()
+                || window == mMap->mMainWidget->castType<MyGUI::Window>()
+                || window == mDialogueWindow->mMainWidget->castType<MyGUI::Window>()
+                || window == mSettingsWindow->mMainWidget->castType<MyGUI::Window>()))
             return;
 
         const auto it = mTrackedWindows.find(window);
@@ -2675,10 +2680,13 @@ namespace MWGui
 
     int WindowManager::getControllerMenuHeight()
     {
+        // Reserve overlay space whether or not the overlays are currently flagged
+        // visible — they're flipped ON after each window has already sized itself,
+        // so isVisible() underreports during sizing.
         int height = MyGUI::RenderManager::getInstance().getViewSize().height;
-        if (mControllerButtonsOverlay != nullptr && mControllerButtonsOverlay->isVisible())
+        if (mControllerButtonsOverlay != nullptr && Settings::gui().mControllerMenus)
             height -= mControllerButtonsOverlay->getHeight();
-        if (mInventoryTabsOverlay != nullptr && mInventoryTabsOverlay->isVisible())
+        if (mInventoryTabsOverlay != nullptr && getMode() == GM_Inventory)
             height -= mInventoryTabsOverlay->getHeight();
         return height;
     }
