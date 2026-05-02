@@ -1889,18 +1889,54 @@ namespace MWWorld
 
         auto navigatorUpdateGuard = mNavigator.makeUpdateGuard();
 
+#ifdef __vita__
+        // Keep the came-from exterior grid lite-loaded while we're inside the
+        // interior unless memory is genuinely tight. On exit, changeCellGrid's
+        // tier-transition logic promotes the relevant cell straight back to
+        // Full instead of paying a fresh load — turning the most common door-
+        // exit case into a near-zero loading screen.
+        const bool keepExteriors = !Vita::isMemoryPressure(getVitaCellBudgetMB());
+#endif
+
         // unload
         for (auto iter = mActiveCells.begin(); iter != mActiveCells.end();)
         {
             auto* cellToUnload = *iter++;
+#ifdef __vita__
+            if (keepExteriors && cellToUnload->getCell()->isExterior())
+            {
+                // Demote any Full cell so we stop ticking NPCs/scripts/AI on
+                // it while the player is indoors. Lite cells stay as-is.
+                auto tierIt = mCellLoadTiers.find(cellToUnload);
+                if (tierIt != mCellLoadTiers.end() && tierIt->second == CellLoadTier::Full)
+                    demoteCellToLite(*cellToUnload, navigatorUpdateGuard.get());
+                continue;
+            }
+#endif
             unloadCell(cellToUnload, navigatorUpdateGuard.get());
         }
-        assert(mActiveCells.empty());
 
 #ifdef __vita__
-        // Two-step flush: release deferred objects, then evict cache entries
-        mRendering.flushUnrefQueueImmediate();
-        mRendering.getResourceSystem()->clearCache();
+        if (!keepExteriors)
+        {
+            assert(mActiveCells.empty());
+            // Two-step flush: release deferred objects, then evict cache entries
+            mRendering.flushUnrefQueueImmediate();
+            mRendering.getResourceSystem()->clearCache();
+        }
+        else
+        {
+            // Release any unref'd resources from the demote pass, but keep the
+            // shared resource cache warm — we'll need those textures and meshes
+            // on the way back out.
+            mRendering.flushUnrefQueueImmediate();
+            char buf[128];
+            snprintf(buf, sizeof(buf), "changeToInteriorCell: kept %d exterior cell(s) lite-loaded",
+                (int)mActiveCells.size());
+            Vita::breadcrumb(buf);
+        }
+#else
+        assert(mActiveCells.empty());
 #endif
 
         loadingListener->setProgressRange(cell.count());

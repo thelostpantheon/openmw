@@ -42,7 +42,7 @@ make -j"$(nproc)" eboot.bin-self
 
 if [ "${WANT_VPK}" -eq 1 ]; then
     echo "=== Building VPK ==="
-    make openmw.vpk-vpk
+    make -j"$(nproc)" openmw.vpk-vpk
 fi
 
 echo ""
