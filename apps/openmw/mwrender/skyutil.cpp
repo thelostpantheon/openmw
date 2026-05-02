@@ -807,6 +807,13 @@ namespace MWRender
         osg::ref_ptr<osg::ColorMask> colormask = new osg::ColorMask(0, 0, 0, 0);
         stateset->setAttributeAndModes(colormask);
         sceneManager.setUpNormalsRTForStateSet(stateset, false);
+#ifdef __vita__
+        // Skip the OQ pipeline on Vita. vitaGL's GL_SAMPLES_PASSED requires a
+        // GXM scene break + CPU-side pixel-readback round trip, costing 3-6 ms
+        // outdoors. The visible flash/glare are also masked off via
+        // SkyManager::mSunglareEnabled defaulting to false on Vita.
+        queryNode->setNodeMask(0);
+#endif
         mTransform->addChild(queryNode);
 
         mOcclusionQueryVisiblePixels = createOcclusionQueryNode(queryNode, true);

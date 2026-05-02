@@ -672,6 +672,38 @@ namespace MWWorld
         // Uses a safety callback to skip animated/tracked nodes.
         if (osg::Group* cellRoot = mRendering.getObjects().getCellRoot(&cell))
         {
+            // Pre-pass: each per-object PAT under the cell root carries a
+            // PtrHolder via osg::UserDataContainer. The optimizer's
+            // FLATTEN_STATIC_TRANSFORMS bails on any node with a userdata
+            // container, so it leaves every static under its own PAT — and
+            // MergeGeometry only merges siblings of the SAME group, so it
+            // can never combine across two PATs. Net result: vitaBatchCell
+            // was a near-no-op for cross-object batching.
+            //
+            // Strip the container from STAT-only PATs so flatten + merge can
+            // collapse them into shared-StateSet supergeometries. Doors and
+            // activators (interactive — script can disable/move them) keep
+            // their PtrHolder so they remain individually addressable.
+            std::vector<std::pair<osg::Node*, osg::ref_ptr<osg::UserDataContainer>>> stripped;
+            for (unsigned int i = 0; i < cellRoot->getNumChildren(); ++i)
+            {
+                osg::Node* child = cellRoot->getChild(i);
+                osg::UserDataContainer* udc = child->getUserDataContainer();
+                if (!udc || udc->getNumUserObjects() == 0)
+                    continue;
+                auto* holder = dynamic_cast<MWRender::PtrHolder*>(udc->getUserObject(0));
+                if (!holder)
+                    continue;
+                unsigned int t = holder->mPtr.getType();
+                // Only liberate truly static refs. Doors and activators stay
+                // pinned because gameplay needs to find them by Ptr.
+                if (t == ESM::REC_STAT || t == ESM::REC_STAT4)
+                {
+                    stripped.emplace_back(child, udc);
+                    child->setUserDataContainer(nullptr);
+                }
+            }
+
             struct VitaCanOptimize : public SceneUtil::Optimizer::IsOperationPermissibleForObjectCallback
             {
                 const osg::Group* mCellRoot;
@@ -689,6 +721,7 @@ namespace MWWorld
                         return false;
                     if (node->getDataVariance() == osg::Object::DYNAMIC)
                         return false;
+                    // Doors/activators still carry the PtrHolder; respect that.
                     if (node->getUserDataContainer())
                         return false;
                     if (node->getUpdateCallback())
@@ -708,6 +741,17 @@ namespace MWWorld
                     | SceneUtil::Optimizer::SHARE_DUPLICATE_STATE
                     | SceneUtil::Optimizer::MERGE_GEOMETRY
                     | SceneUtil::Optimizer::VERTEX_POSTTRANSFORM);
+
+            // Best-effort restore: if a stripped PAT survived flattening (e.g.
+            // because it carried a non-flattenable transform), reattach its
+            // userdata so any still-valid Ptr lookup keeps working. PATs that
+            // got flattened away are no longer in the graph; the ref_ptr to
+            // their old userdata simply releases.
+            for (auto& [node, udc] : stripped)
+            {
+                if (node->getNumParents() > 0)
+                    node->setUserDataContainer(udc);
+            }
 
             // Replace OSG's loose bounding-sphere cull with a tight AABB.
             osg::BoundingBox cellAABB = Vita::computeCellAABB(cellRoot);
@@ -1618,6 +1662,40 @@ namespace MWWorld
         CellStore& current = mWorld.getWorldModel().getExterior(playerCellIndex);
         MWBase::Environment::get().getWindowManager()->changeCell(&current);
 
+#ifdef __vita__
+        // Re-assert global water state. With keep-came-from, ring cells stay
+        // Lite across grid changes and the per-cell setWaterEnabled calls in
+        // loadCell* never fire for cells that simply persisted. Worse, the
+        // water plane's anchor position is set by Water::changeCell() inside
+        // addCell() — and addCell() doesn't run for kept cells either, so on
+        // exit from an interior the water plane is stuck at the interior's
+        // (0, 0, mTop) anchor instead of the exterior cell coords.
+        {
+            CellStore* anyWaterCell = nullptr;
+            for (auto* c : mActiveCells)
+            {
+                if (c->getCell()->isExterior() || c->getCell()->hasWater())
+                {
+                    anyWaterCell = c;
+                    break;
+                }
+            }
+            if (anyWaterCell)
+            {
+                const float level = anyWaterCell->getWaterLevel();
+                mRendering.setWaterEnabled(true);
+                mRendering.setWaterHeight(level);
+                mRendering.setWaterCell(&current); // re-anchor plane to player's exterior cell
+                mPhysics->enableWater(level);
+            }
+            else
+            {
+                mRendering.setWaterEnabled(false);
+                mPhysics->disableWater();
+            }
+        }
+#endif
+
         if (changeEvent)
             mCellChanged = true;
 
@@ -1889,18 +1967,54 @@ namespace MWWorld
 
         auto navigatorUpdateGuard = mNavigator.makeUpdateGuard();
 
+#ifdef __vita__
+        // Keep the came-from exterior grid lite-loaded while we're inside the
+        // interior unless memory is genuinely tight. On exit, changeCellGrid's
+        // tier-transition logic promotes the relevant cell straight back to
+        // Full instead of paying a fresh load — turning the most common door-
+        // exit case into a near-zero loading screen.
+        const bool keepExteriors = !Vita::isMemoryPressure(getVitaCellBudgetMB());
+#endif
+
         // unload
         for (auto iter = mActiveCells.begin(); iter != mActiveCells.end();)
         {
             auto* cellToUnload = *iter++;
+#ifdef __vita__
+            if (keepExteriors && cellToUnload->getCell()->isExterior())
+            {
+                // Demote any Full cell so we stop ticking NPCs/scripts/AI on
+                // it while the player is indoors. Lite cells stay as-is.
+                auto tierIt = mCellLoadTiers.find(cellToUnload);
+                if (tierIt != mCellLoadTiers.end() && tierIt->second == CellLoadTier::Full)
+                    demoteCellToLite(*cellToUnload, navigatorUpdateGuard.get());
+                continue;
+            }
+#endif
             unloadCell(cellToUnload, navigatorUpdateGuard.get());
         }
-        assert(mActiveCells.empty());
 
 #ifdef __vita__
-        // Two-step flush: release deferred objects, then evict cache entries
-        mRendering.flushUnrefQueueImmediate();
-        mRendering.getResourceSystem()->clearCache();
+        if (!keepExteriors)
+        {
+            assert(mActiveCells.empty());
+            // Two-step flush: release deferred objects, then evict cache entries
+            mRendering.flushUnrefQueueImmediate();
+            mRendering.getResourceSystem()->clearCache();
+        }
+        else
+        {
+            // Release any unref'd resources from the demote pass, but keep the
+            // shared resource cache warm — we'll need those textures and meshes
+            // on the way back out.
+            mRendering.flushUnrefQueueImmediate();
+            char buf[128];
+            snprintf(buf, sizeof(buf), "changeToInteriorCell: kept %d exterior cell(s) lite-loaded",
+                (int)mActiveCells.size());
+            Vita::breadcrumb(buf);
+        }
+#else
+        assert(mActiveCells.empty());
 #endif
 
         loadingListener->setProgressRange(cell.count());

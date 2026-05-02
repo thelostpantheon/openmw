@@ -23,6 +23,20 @@
 
 namespace MWRender
 {
+#ifdef __vita__
+    // NPC movement inside a cell calls setPosition() on each PAT, which dirties
+    // the parent cell-group's bound and forces an O(N children) recompute the
+    // next time any system reads it (cull, light intersection). Returning a
+    // huge fixed sphere short-circuits this — the actual children still cull
+    // individually.
+    struct VitaCellBoundCallback : public osg::Node::ComputeBoundingSphereCallback
+    {
+        osg::BoundingSphere computeBound(const osg::Node&) const override
+        {
+            return osg::BoundingSphere(osg::Vec3(0, 0, 0), 1.0e6f);
+        }
+    };
+#endif
 
     Objects::Objects(Resource::ResourceSystem* resourceSystem, const osg::ref_ptr<osg::Group>& rootNode,
         SceneUtil::UnrefQueue& unrefQueue)
@@ -52,6 +66,9 @@ namespace MWRender
         {
             cellnode = new osg::Group;
             cellnode->setName("Cell Root");
+#ifdef __vita__
+            cellnode->setComputeBoundingSphereCallback(new VitaCellBoundCallback);
+#endif
             mRootNode->addChild(cellnode);
             mCellSceneNodes[ptr.getCell()] = cellnode;
         }

@@ -478,7 +478,14 @@ namespace Resource
         , mImageManager(imageManager)
         , mNifFileManager(nifFileManager)
         , mBgsmFileManager(bgsmFileManager)
+#ifdef __vita__
+        // Trilinear (LINEAR_MIPMAP_LINEAR) costs ~2× bilinear bandwidth on SGX543
+        // and is imperceptible at 640×368. NEAREST mip selection is the right
+        // default for the platform.
+        , mMinFilter(osg::Texture::LINEAR_MIPMAP_NEAREST)
+#else
         , mMinFilter(osg::Texture::LINEAR_MIPMAP_LINEAR)
+#endif
         , mMagFilter(osg::Texture::LINEAR)
         , mMaxAnisotropy(1.f)
         , mParticleSystemMask(~0u)

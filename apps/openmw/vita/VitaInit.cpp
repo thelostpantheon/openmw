@@ -1074,8 +1074,22 @@ namespace Vita
 
     int getHeapUsedMB()
     {
-        struct mallinfo mi = mallinfo();
-        return mi.uordblks / (1024 * 1024);
+        // Cache the result. mallinfo() walks the entire allocator's free-list
+        // metadata to compute uordblks — at 200+ MB live with typical heap
+        // fragmentation that's 1-4 ms per call. The watchdog + the deferred-
+        // load chunker call this several times per frame; refreshing once a
+        // second is plenty.
+        static int s_cachedMB = 0;
+        static SceUInt64 s_lastTime = 0;
+        SceUInt64 now = sceKernelGetProcessTimeWide();
+        // sceKernelGetProcessTimeWide returns microseconds.
+        if (s_lastTime == 0 || (now - s_lastTime) > 1000000ULL)
+        {
+            struct mallinfo mi = mallinfo();
+            s_cachedMB = mi.uordblks / (1024 * 1024);
+            s_lastTime = now;
+        }
+        return s_cachedMB;
     }
 
     bool isMemoryPressure(int thresholdMB)

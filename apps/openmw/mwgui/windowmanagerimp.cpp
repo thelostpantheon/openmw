@@ -1012,7 +1012,21 @@ namespace MWGui
             = MWBase::Environment::get().getStateManager()->getState() != MWBase::StateManager::State_NoGame;
 
         if (gameRunning)
+        {
+#ifdef __vita__
+            // Map widget refresh throttled to ~8 Hz on Vita. Per-frame
+            // updateMap costs 0.5-1.5 ms iterating maps + magic markers.
+            static float s_mapAccum = 0.f;
+            s_mapAccum += frameDuration;
+            if (s_mapAccum >= 0.125f)
+            {
+                s_mapAccum = 0.f;
+                updateMap();
+            }
+#else
             updateMap();
+#endif
+        }
 
         if (!mGuiModes.empty())
         {

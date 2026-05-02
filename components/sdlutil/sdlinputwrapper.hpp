@@ -91,6 +91,10 @@ namespace SDLUtil
         std::function<bool()> mTouchCursorEnabled;
         SDL_FingerID mCursorFingerId = 0;
         bool mCursorFingerActive = false;
+        // Back-touchpad → L2/R2 trigger mapping. State tracked per-half so
+        // pressing both at once (L2+R2) works.
+        bool mBackTouchL2 = false;
+        bool mBackTouchR2 = false;
     public:
         void setTouchCursorEnabledPredicate(std::function<bool()> pred) { mTouchCursorEnabled = std::move(pred); }
     private:

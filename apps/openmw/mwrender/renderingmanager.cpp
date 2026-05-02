@@ -1097,6 +1097,11 @@ namespace MWRender
             mPostProcessor->getStateUpdater()->setIsWaterEnabled(enabled);
     }
 
+    void RenderingManager::setWaterCell(const MWWorld::CellStore* store)
+    {
+        mWater->changeCell(store);
+    }
+
     void RenderingManager::setWaterHeight(float height)
     {
         mWater->setCullCallback(mTerrain->getHeightCullCallback(height, Mask_Water));
