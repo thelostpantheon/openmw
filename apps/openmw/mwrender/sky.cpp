@@ -866,6 +866,12 @@ namespace MWRender
             mAtmosphereUpdater->setEmissionColor(mSkyColour);
             mMasser->setAtmosphereColor(mSkyColour);
             mSecunda->setAtmosphereColor(mSkyColour);
+#ifdef __vita__
+            // Same logic as the cloud opacity gate: a near-transparent
+            // full-sky alpha-blended quad costs ~470k blended fragments and
+            // contributes nothing visible — skip the draw.
+            mAtmosphereDay->setNodeMask(mSkyColour.a() > 0.02f ? ~0u : 0);
+#endif
         }
 
         if (mFogColour != weather.mFogColor)

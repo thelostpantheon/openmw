@@ -88,7 +88,15 @@ namespace SceneUtil
         void cull(osg::NodeVisitor* nv);
         void updateBounds(osg::NodeVisitor* nv);
 
-        osg::ref_ptr<osg::Geometry> mGeometry[2];
+#ifdef __vita__
+        // 3 slots for triple-buffer safety: vsync-off + vglUseTripleBuffering
+        // means the GPU may still be reading slot[N%K] up to 2 frames later.
+        // K=3 guarantees the slot the CPU is writing isn't being GPU-read.
+        static constexpr int kRigBufferSlots = 3;
+#else
+        static constexpr int kRigBufferSlots = 2;
+#endif
+        osg::ref_ptr<osg::Geometry> mGeometry[kRigBufferSlots];
         osg::Geometry* getGeometry(unsigned int frame) const;
 
         osg::ref_ptr<osg::Geometry> mSourceGeometry;
