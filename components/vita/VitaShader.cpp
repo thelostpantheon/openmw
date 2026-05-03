@@ -2,6 +2,7 @@
 
 #include "VitaShader.h"
 
+#include <algorithm>
 #include <string>
 
 #include <osg/Node>
@@ -121,15 +122,13 @@ namespace Vita
         "varying float v_fogFactor;\n"
         "varying float v_skyHorizon;\n"
         "\n"
+        "uniform vec3 u_fogColorEffective;\n"
         "void main() {\n"
         "    vec4 tex = texture2D(diffuseMap, v_texCoord);\n"
         "    vec4 color = vec4(tex.rgb * v_color.rgb, tex.a * v_color.a);\n"
         "    if (color.a < alphaRef) discard;\n"
-        "    float fogLum = max(u_fogColor.r, max(u_fogColor.g, u_fogColor.b));\n"
-        "    float fogGreyMix = 1.0 - smoothstep(0.05, 0.20, fogLum);\n"
-        "    vec3 fogRGB = mix(u_fogColor.rgb, vec3(0.08), fogGreyMix);\n"
-        "    vec3 fogged = mix(fogRGB, color.rgb, v_fogFactor);\n"
-        "    fogged = mix(fogged, fogRGB, v_skyHorizon);\n"
+        "    vec3 fogged = mix(u_fogColorEffective, color.rgb, v_fogFactor);\n"
+        "    fogged = mix(fogged, u_fogColorEffective, v_skyHorizon);\n"
         "    gl_FragColor = vec4(fogged, color.a);\n"
         "}\n";
 
@@ -215,16 +214,14 @@ namespace Vita
         "varying vec4 v_color;\n"
         "varying float v_fogFactor;\n"
         "\n"
+        "uniform vec3 u_fogColorEffective;\n"
         "void main() {\n"
         "    vec4 tex = texture2D(diffuseMap, v_texCoord);\n"
         "    float alpha = 1.0;\n"
         "    if (u_hasBlendMap != 0)\n"
         "        alpha = texture2D(blendMap, v_texCoord2).a;\n"
         "    vec4 color = vec4(tex.rgb * v_color.rgb, alpha);\n"
-        "    float fogLum = max(u_fogColor.r, max(u_fogColor.g, u_fogColor.b));\n"
-        "    float fogGreyMix = 1.0 - smoothstep(0.05, 0.20, fogLum);\n"
-        "    vec3 fogRGB = mix(u_fogColor.rgb, vec3(0.08), fogGreyMix);\n"
-        "    gl_FragColor = mix(vec4(fogRGB, u_fogColor.a), color, v_fogFactor);\n"
+        "    gl_FragColor = mix(vec4(u_fogColorEffective, u_fogColor.a), color, v_fogFactor);\n"
         "}\n";
 
     // VitaTerrainMulti Shaders
@@ -242,6 +239,7 @@ namespace Vita
         "uniform sampler2D u_blend3;\n"
         "uniform int u_numLayers;\n"
         "uniform vec4 u_fogColor;\n"
+        "uniform vec3 u_fogColorEffective;\n"
         "uniform vec3 u_ambient;\n"
         "\n"
         "varying vec2 v_texCoord;\n"
@@ -264,11 +262,7 @@ namespace Vita
         "        color = mix(color, texture2D(u_layer3, v_texCoord).rgb, b3);\n"
         "    }\n"
         "    color *= v_color.rgb;\n"
-
-        "    float fogLum = max(u_fogColor.r, max(u_fogColor.g, u_fogColor.b));\n"
-        "    float fogGreyMix = 1.0 - smoothstep(0.05, 0.20, fogLum);\n"
-        "    vec3 fogRGB = mix(u_fogColor.rgb, vec3(0.08), fogGreyMix);\n"
-        "    gl_FragColor = mix(vec4(fogRGB, u_fogColor.a), vec4(color, 1.0), v_fogFactor);\n"
+        "    gl_FragColor = mix(vec4(u_fogColorEffective, u_fogColor.a), vec4(color, 1.0), v_fogFactor);\n"
         "}\n";
 
     // ==================== Program Creation ====================
@@ -385,6 +379,10 @@ namespace Vita
         ss->addUniform(new osg::Uniform("u_fogStart", 0.f));
         ss->addUniform(new osg::Uniform("u_fogEnd", 2048.f));
         ss->addUniform(new osg::Uniform("u_fogColor", osg::Vec4f(0.7f, 0.7f, 0.7f, 1.f)));
+        // Precomputed fog tint = mix(u_fogColor.rgb, vec3(0.08), greyMix). Keeps
+        // a smoothstep + mix out of the fragment shader; updated CPU-side in
+        // updateSceneUniforms whenever u_fogColor changes.
+        ss->addUniform(new osg::Uniform("u_fogColorEffective", osg::Vec3f(0.7f, 0.7f, 0.7f)));
 
         // Default material uniforms (overridden per-node by applyVitaShader)
         ss->addUniform(new osg::Uniform("u_materialDiffuse", osg::Vec4f(1, 1, 1, 1)));
@@ -457,6 +455,20 @@ namespace Vita
         {
             if (osg::Uniform* u = ss->getUniform("u_fogColor"))
                 u->set(fogColor);
+
+            // Precompute fogRGB = mix(fogColor.rgb, vec3(0.08), 1-smoothstep(0.05,0.20,fogLum))
+            // — was previously per-fragment in 3 shaders.
+            const float fogLum = std::max({ fogColor.r(), fogColor.g(), fogColor.b() });
+            const float t = std::clamp((fogLum - 0.05f) / (0.20f - 0.05f), 0.f, 1.f);
+            const float smoothLum = t * t * (3.f - 2.f * t);
+            const float fogGreyMix = 1.f - smoothLum;
+            const osg::Vec3f fogRGB(
+                fogColor.r() * (1.f - fogGreyMix) + 0.08f * fogGreyMix,
+                fogColor.g() * (1.f - fogGreyMix) + 0.08f * fogGreyMix,
+                fogColor.b() * (1.f - fogGreyMix) + 0.08f * fogGreyMix);
+            if (osg::Uniform* u = ss->getUniform("u_fogColorEffective"))
+                u->set(fogRGB);
+
             s_fogColor = fogColor;
         }
     }

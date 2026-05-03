@@ -272,7 +272,20 @@ bool OMW::Engine::frame(unsigned frameNumber, float frametime)
                 {
                     double hours = (frametime * mWorld->getTimeManager()->getGameTimeScale()) / 3600.0;
                     mWorld->advanceTime(hours, true);
+#ifdef __vita__
+                    // rechargeItems iterates every NPC/Creature/Container in
+                    // every active cell each frame. Recharge math is
+                    // FPS-invariant; throttle to ~4 Hz with accumulated dt.
+                    static float s_rechargeAccum = 0.f;
+                    s_rechargeAccum += frametime;
+                    if (s_rechargeAccum >= 0.25f)
+                    {
+                        mWorld->rechargeItems(s_rechargeAccum, true);
+                        s_rechargeAccum = 0.f;
+                    }
+#else
                     mWorld->rechargeItems(frametime, true);
+#endif
                 }
             }
         }

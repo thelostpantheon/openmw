@@ -32,12 +32,12 @@ namespace SceneUtil
 
     void RigGeometry::setSourceGeometry(osg::ref_ptr<osg::Geometry> sourceGeometry)
     {
-        for (unsigned int i = 0; i < 2; ++i)
+        for (unsigned int i = 0; i < kRigBufferSlots; ++i)
             mGeometry[i] = nullptr;
 
         mSourceGeometry = sourceGeometry;
 
-        for (unsigned int i = 0; i < 2; ++i)
+        for (unsigned int i = 0; i < kRigBufferSlots; ++i)
         {
             const osg::Geometry& from = *sourceGeometry;
 
@@ -52,33 +52,27 @@ namespace SceneUtil
 
             osg::Geometry& to = *mGeometry[i];
             to.setSupportsDisplayList(false);
-#ifdef __vita__
-            // On Vita, use client-side arrays for RigGeometry instead of VBOs.
-            // vitaGL's VBO memory can be read by the GPU from the previous frame while
-            // RigGeometry overwrites it with new skinned vertices, causing stretched
-            // triangle artifacts. Client-side arrays get a fresh GPU allocation each draw.
-            to.setUseVertexBufferObjects(false);
-#else
+            // Vita: VBOs are restored, paired with kRigBufferSlots=3 ping-pong
+            // (instead of the 2-slot original) so the GPU is guaranteed to
+            // have finished reading slot N when the CPU writes slot N+3.
+            // The previous client-side fallback re-uploaded all skinned
+            // vertex/normal/tangent data through glVertexAttribPointer every
+            // frame for every NPC — measurable savings on populated cells.
             to.setUseVertexBufferObjects(true);
-#endif
             to.setCullingActive(false); // make sure to disable culling since that's handled by this class
             to.setComputeBoundingBoxCallback(new CopyBoundingBoxCallback());
             to.setComputeBoundingSphereCallback(new CopyBoundingSphereCallback());
 
             // vertices and normals are modified every frame, so we need to deep copy them.
             // assign a dedicated VBO to make sure that modifications don't interfere with source geometry's VBO.
-#ifndef __vita__
             osg::ref_ptr<osg::VertexBufferObject> vbo(new osg::VertexBufferObject);
             vbo->setUsage(GL_DYNAMIC_DRAW_ARB);
-#endif
 
             osg::ref_ptr<osg::Array> vertexArray
                 = static_cast<osg::Array*>(from.getVertexArray()->clone(osg::CopyOp::DEEP_COPY_ALL));
             if (vertexArray)
             {
-#ifndef __vita__
                 vertexArray->setVertexBufferObject(vbo);
-#endif
                 to.setVertexArray(vertexArray);
             }
 
@@ -88,9 +82,7 @@ namespace SceneUtil
                     = static_cast<osg::Array*>(normals->clone(osg::CopyOp::DEEP_COPY_ALL));
                 if (normalArray)
                 {
-#ifndef __vita__
                     normalArray->setVertexBufferObject(vbo);
-#endif
                     to.setNormalArray(normalArray, osg::Array::BIND_PER_VERTEX);
                 }
             }
@@ -100,9 +92,7 @@ namespace SceneUtil
                 mSourceTangents = tangents;
                 osg::ref_ptr<osg::Array> tangentArray
                     = static_cast<osg::Array*>(tangents->clone(osg::CopyOp::DEEP_COPY_ALL));
-#ifndef __vita__
                 tangentArray->setVertexBufferObject(vbo);
-#endif
                 to.setTexCoordArray(7, tangentArray, osg::Array::BIND_PER_VERTEX);
             }
             else
@@ -293,7 +283,7 @@ namespace SceneUtil
             for (unsigned int i = 0; i < getNumParents(); ++i)
                 getParent(i)->dirtyBound();
 
-            for (unsigned int i = 0; i < 2; ++i)
+            for (unsigned int i = 0; i < kRigBufferSlots; ++i)
             {
                 osg::Geometry& geom = *mGeometry[i];
                 static_cast<CopyBoundingBoxCallback*>(geom.getComputeBoundingBoxCallback())->boundingBox = _boundingBox;
@@ -433,7 +423,7 @@ namespace SceneUtil
 
     osg::Geometry* RigGeometry::getGeometry(unsigned int frame) const
     {
-        return mGeometry[frame % 2].get();
+        return mGeometry[frame % kRigBufferSlots].get();
     }
 
 }

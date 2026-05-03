@@ -1039,7 +1039,23 @@ namespace Vita
         initClocks();
 
         // Initialize vitaGL before SDL_Init so SDL2's video subsystem skips its default init.
-        vglSetParamBufferSize(8 * 1024 * 1024);
+        //
+        // GXM has FOUR independent buffer sizes that all matter for crash-resistance:
+        //  - Parameter buffer   (shader uniforms storage,    default 16 MB) — set via vglSetParamBufferSize
+        //  - VDM ring buffer    (vertex-data-master cmds,    default 128 KB)
+        //  - Vertex ring buffer (per-frame vertex uniforms,  default  2 MB)
+        //  - Fragment ring buf  (per-frame fragment uniforms,default 512 KB)
+        //
+        // sceGxmReserveVertexDefaultUniformBuffer carves from the *vertex ring buffer*,
+        // not the parameter buffer. When that ring fills up, vitaGL's tests.c:280
+        // reserves with no error check and the next sceGxmSetUniformDataF dereferences
+        // garbage → data abort inside SceGxm (R0 = bad CDRAM ptr like 0x70100254).
+        // Observed crash in dense interior cells (Shulk Egg Mine repro). Bumping the
+        // vertex/fragment/VDM rings 2× each. Param buffer left at default 16 MB.
+        vglSetParamBufferSize(16 * 1024 * 1024);
+        vglSetVDMBufferSize(256 * 1024);                  // 128 KB → 256 KB
+        vglSetVertexBufferSize(8 * 1024 * 1024);          //  2 MB → 8 MB (4 MB still crashed; bumped further)
+        vglSetFragmentBufferSize(2 * 1024 * 1024);        // 512 KB → 2 MB
         vglUseTripleBuffering(GL_TRUE);
         vglWaitVblankStart(GL_FALSE);
         vglInitWithCustomSizes(0x100000, 640, 368,
@@ -1074,8 +1090,22 @@ namespace Vita
 
     int getHeapUsedMB()
     {
-        struct mallinfo mi = mallinfo();
-        return mi.uordblks / (1024 * 1024);
+        // Cache the result. mallinfo() walks the entire allocator's free-list
+        // metadata to compute uordblks — at 200+ MB live with typical heap
+        // fragmentation that's 1-4 ms per call. The watchdog + the deferred-
+        // load chunker call this several times per frame; refreshing once a
+        // second is plenty.
+        static int s_cachedMB = 0;
+        static SceUInt64 s_lastTime = 0;
+        SceUInt64 now = sceKernelGetProcessTimeWide();
+        // sceKernelGetProcessTimeWide returns microseconds.
+        if (s_lastTime == 0 || (now - s_lastTime) > 1000000ULL)
+        {
+            struct mallinfo mi = mallinfo();
+            s_cachedMB = mi.uordblks / (1024 * 1024);
+            s_lastTime = now;
+        }
+        return s_cachedMB;
     }
 
     bool isMemoryPressure(int thresholdMB)

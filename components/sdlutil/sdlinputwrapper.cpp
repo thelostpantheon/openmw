@@ -218,6 +218,33 @@ namespace SDLUtil
                 case SDL_FINGERUP:
                 case SDL_FINGERMOTION:
 #ifdef __vita__
+                    // Back touchpad: left/right halves emulate L2/R2 triggers.
+                    // Margins on the outer edges and the centre seam keep the
+                    // hit zones away from where users naturally rest fingers.
+                    if (evt.tfinger.touchId == 2 && evt.type != SDL_FINGERMOTION && mConListener)
+                    {
+                        constexpr float kEdgeMargin = 0.10f; // left/right outer dead zones
+                        constexpr float kSeamMargin = 0.05f; // centre dead zone (each side)
+                        const float x = evt.tfinger.x;
+                        const bool isL2Zone = (x >= kEdgeMargin && x < 0.5f - kSeamMargin);
+                        const bool isR2Zone = (x > 0.5f + kSeamMargin && x <= 1.0f - kEdgeMargin);
+                        if (isL2Zone || isR2Zone)
+                        {
+                            const bool pressed = (evt.type == SDL_FINGERDOWN);
+                            bool& state = isL2Zone ? mBackTouchL2 : mBackTouchR2;
+                            if (pressed != state)
+                            {
+                                state = pressed;
+                                SDL_ControllerAxisEvent axEvt = {};
+                                axEvt.type = SDL_CONTROLLERAXISMOTION;
+                                axEvt.axis = isL2Zone ? SDL_CONTROLLER_AXIS_TRIGGERLEFT
+                                                      : SDL_CONTROLLER_AXIS_TRIGGERRIGHT;
+                                axEvt.value = pressed ? 32767 : 0;
+                                mConListener->axisMoved(1, axEvt);
+                            }
+                        }
+                        break;
+                    }
                     if (evt.tfinger.touchId == 1)
                     {
                         const bool guiMode = mTouchCursorEnabled && mTouchCursorEnabled();

@@ -1590,6 +1590,20 @@ namespace MWMechanics
                     const bool cellChanged = worldScene->hasCellChanged();
                     const MWWorld::Ptr actorPtr = actor.getPtr(); // make a copy of the map key to avoid it being
                                                                   // invalidated when the player teleports
+#ifdef __vita__
+                    // updateActor (awareness/regen/active-spell tick) and the
+                    // VFX walk are out-of-band for actors outside the AI
+                    // processing radius; vanilla relies on these only for
+                    // actors the player is interacting with. Skipping for
+                    // distant NPCs saves ~3-6 ms/frame in dense areas.
+                    if (inProcessingRange || isPlayer)
+                    {
+                        updateActor(actorPtr, duration);
+                        ctrl.updateContinuousVfx();
+                        if (!cellChanged && worldScene->hasCellChanged())
+                            return;
+                    }
+#else
                     updateActor(actorPtr, duration);
 
                     // Looping magic VFX update
@@ -1604,6 +1618,7 @@ namespace MWMechanics
                         return; // for now abort update of the old cell when cell changes by teleportation magic effect
                                 // a better solution might be to apply cell changes at the end of the frame
                     }
+#endif
                     if (aiActive && inProcessingRange)
                     {
 #ifdef __vita__

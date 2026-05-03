@@ -262,7 +262,13 @@ namespace MWRender
         , mWindSpeed(0.f)
         , mBaseWindSpeed(0.f)
         , mEnabled(true)
+#ifdef __vita__
+        // Sun glare needs the OcclusionQueryNode pipeline, which on vitaGL requires
+        // a GXM scene break + CPU-side pixel readback every frame.
+        , mSunglareEnabled(false)
+#else
         , mSunglareEnabled(true)
+#endif
         , mPrecipitationAlpha(0.f)
         , mDirtyParticlesEffect(false)
     {
@@ -829,9 +835,17 @@ namespace MWRender
         {
             mCloudBlendFactor = std::clamp(weather.mCloudBlendFactor, 0.f, 1.f);
 
-            mCloudUpdater->setOpacity(1.f - mCloudBlendFactor);
+            const float curOpacity = 1.f - mCloudBlendFactor;
+            mCloudUpdater->setOpacity(curOpacity);
             mNextCloudUpdater->setOpacity(mCloudBlendFactor);
+#ifdef __vita__
+            // A full-sky alpha-blended quad at near-zero opacity costs ~470k
+            // blended fragments per frame for visually nothing — skip the draw.
+            mCloudMesh->setNodeMask(curOpacity > 0.02f ? ~0u : 0);
+            mNextCloudMesh->setNodeMask(mCloudBlendFactor > 0.02f ? ~0u : 0);
+#else
             mNextCloudMesh->setNodeMask(mCloudBlendFactor > 0.f ? ~0u : 0);
+#endif
         }
 
         if (mCloudColour != weather.mFogColor)
@@ -852,6 +866,12 @@ namespace MWRender
             mAtmosphereUpdater->setEmissionColor(mSkyColour);
             mMasser->setAtmosphereColor(mSkyColour);
             mSecunda->setAtmosphereColor(mSkyColour);
+#ifdef __vita__
+            // Same logic as the cloud opacity gate: a near-transparent
+            // full-sky alpha-blended quad costs ~470k blended fragments and
+            // contributes nothing visible — skip the draw.
+            mAtmosphereDay->setNodeMask(mSkyColour.a() > 0.02f ? ~0u : 0);
+#endif
         }
 
         if (mFogColour != weather.mFogColor)

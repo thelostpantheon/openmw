@@ -169,6 +169,11 @@ namespace MWRender
 
         void setWaterEnabled(bool enabled);
         void setWaterHeight(float level);
+        // Re-anchor the water plane to a cell. Normally done implicitly via
+        // addCell() at cell-load time; needed explicitly on Vita when the
+        // keep-came-from path persists exterior cells across an interior visit
+        // (the cell isn't re-added on exit so addCell never fires).
+        void setWaterCell(const MWWorld::CellStore* store);
 
         /// Take a screenshot of w*h onto the given image, not including the GUI.
         void screenshot(osg::Image* image, int w, int h);
