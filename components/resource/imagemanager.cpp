@@ -9,8 +9,36 @@
 #include <components/sceneutil/glextensions.hpp>
 #include <components/vfs/manager.hpp>
 #include <components/vfs/pathutil.hpp>
+#ifdef __vita__
+#include <ctime>
+#include <malloc.h>
+#include <components/settings/values.hpp>
+#endif
 
 #include "objectcache.hpp"
+
+#ifdef __vita__
+namespace
+{
+    // mallinfo() walks the allocator's free-list metadata; at 200+ MB live
+    // with typical fragmentation that's 1-4 ms per call. The dynamic
+    // texture-tier-down below would otherwise call this on every image
+    // load. Cache at 1 Hz — heap pressure changes on the order of seconds.
+    int getCachedHeapUsedMB()
+    {
+        static int s_cachedMB = 0;
+        static std::time_t s_lastSec = 0;
+        const std::time_t now = std::time(nullptr);
+        if (s_lastSec == 0 || now != s_lastSec)
+        {
+            const struct mallinfo mi = mallinfo();
+            s_cachedMB = mi.uordblks / (1024 * 1024);
+            s_lastSec = now;
+        }
+        return s_cachedMB;
+    }
+}
+#endif
 
 #ifdef OSG_LIBRARY_STATIC
 // This list of plugins should match with the list in the top-level CMakelists.txt.
@@ -401,6 +429,14 @@ namespace Resource
 
             // Cap world textures; skip UI/normal/spec; atlases get a higher
             // cap so individual tiles inside stay usable.
+            //
+            // Caps come from Settings::general().mVitaTextureDetail. Tuned at
+            // boot from the in-game Vita Settings tab; "off" disables the cap
+            // entirely. We deliberately re-read the setting on every image
+            // load rather than cache: the value is rarely changed mid-session
+            // (restart-required UX), the lookup is O(log n) on a string, and
+            // skipping the cache avoids any "old textures still using prior
+            // cap" surprise after a runtime change.
             {
                 std::string_view p = path.value();
                 bool isUI = p.find("menu") != std::string_view::npos
@@ -417,8 +453,43 @@ namespace Resource
 
                 bool isAtlas = p.find("/atl/") != std::string_view::npos;
 
-                const int maxEdge = isAtlas ? 512 : 64;
-                if (!isUI && !isNormalSpec && !image->isCompressed()
+                int worldCap = 64, atlasCap = 512; // performance preset
+                bool downsampleEnabled = true;
+                const std::string& preset = Settings::general().mVitaTextureDetail.get();
+                if (preset == "balanced") { worldCap = 128; atlasCap = 768; }
+                else if (preset == "high") { worldCap = 256; atlasCap = 1024; }
+                else if (preset == "off")  { downsampleEnabled = false; }
+
+                // Dynamic tier-down: when heap pressure is high, clamp NEW
+                // texture loads below what the user selected. Existing
+                // cached textures hold their size until cache expiry; over
+                // a few seconds of high pressure the texture mix shifts
+                // toward what the heap can afford. The thresholds sit just
+                // below the MemWatchdog flush trigger (budget - 20 =
+                // 244 MB on the 320 MB heap config) so tier-down kicks in
+                // BEFORE the watchdog fires, easing pressure pre-emptively.
+                // "off" stays off — opt-in users get their full textures.
+                if (downsampleEnabled)
+                {
+                    const int heapMB = getCachedHeapUsedMB();
+                    if (heapMB > 270)
+                    {
+                        // Emergency: clamp to performance caps regardless
+                        // of preset. Same numbers as the "performance"
+                        // tier above.
+                        worldCap = std::min(worldCap, 64);
+                        atlasCap = std::min(atlasCap, 512);
+                    }
+                    else if (heapMB > 240)
+                    {
+                        // Moderate pressure: clamp to balanced caps.
+                        worldCap = std::min(worldCap, 128);
+                        atlasCap = std::min(atlasCap, 768);
+                    }
+                }
+
+                const int maxEdge = isAtlas ? atlasCap : worldCap;
+                if (downsampleEnabled && !isUI && !isNormalSpec && !image->isCompressed()
                     && image->s() > 1 && image->t() > 1)
                 {
                     int s = image->s(), t = image->t();

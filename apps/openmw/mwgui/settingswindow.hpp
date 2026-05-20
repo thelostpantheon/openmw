@@ -115,6 +115,14 @@ namespace MWGui
         // Preload cell cache size (1/2/3)
         MyGUI::ComboBox* mVitaCellCacheList = nullptr;
         void onVitaCellCacheChanged(MyGUI::ComboBox* sender, size_t pos);
+        // Render resolution preset (5 discrete options). Sets both
+        // Video.resolution x and Video.resolution y. Restart required.
+        MyGUI::ComboBox* mVitaResolutionList = nullptr;
+        void onVitaResolutionChanged(MyGUI::ComboBox* sender, size_t pos);
+        // Texture downsample preset (performance/balanced/high/off).
+        // Backed by General.vita texture detail. Restart required.
+        MyGUI::ComboBox* mVitaTextureDetailList = nullptr;
+        void onVitaTextureDetailChanged(MyGUI::ComboBox* sender, size_t pos);
 #endif
 
         void onRebindAction(MyGUI::Widget* sender);

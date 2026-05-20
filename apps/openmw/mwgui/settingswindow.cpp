@@ -306,6 +306,36 @@ namespace MWGui
                 mVitaCellCacheList->eventComboChangePosition
                     += MyGUI::newDelegate(this, &SettingsWindow::onVitaCellCacheChanged);
             }
+
+            // Render resolution dropdown: maps the (X, Y) cfg pair to the
+            // nearest preset. Width is the distinguishing axis. Capped at
+            // 640x368 — see comment in onVitaResolutionChanged.
+            getWidget(mVitaResolutionList, "VitaResolutionList");
+            if (mVitaResolutionList)
+            {
+                const int curX = Settings::video().mResolutionX.get();
+                size_t idx = 1; // 512x288 default
+                if (curX <= 480) idx = 0;
+                else if (curX <= 512) idx = 1;
+                else idx = 2;
+                mVitaResolutionList->setIndexSelected(idx);
+                mVitaResolutionList->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onVitaResolutionChanged);
+            }
+
+            // Texture detail dropdown (performance/balanced/high/off)
+            getWidget(mVitaTextureDetailList, "VitaTextureDetailList");
+            if (mVitaTextureDetailList)
+            {
+                const std::string& current = Settings::general().mVitaTextureDetail.get();
+                size_t idx = 0; // performance
+                if (current == "balanced") idx = 1;
+                else if (current == "high") idx = 2;
+                else if (current == "off") idx = 3;
+                mVitaTextureDetailList->setIndexSelected(idx);
+                mVitaTextureDetailList->eventComboChangePosition
+                    += MyGUI::newDelegate(this, &SettingsWindow::onVitaTextureDetailChanged);
+            }
         }
         catch (...)
         {
@@ -781,6 +811,36 @@ namespace MWGui
         Settings::cells().mPreloadCellCacheMax.set(value);
         Settings::cells().mPreloadCellCacheMin.set(1);
         apply();
+    }
+
+    void SettingsWindow::onVitaResolutionChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        // Indices aligned with layout AddItem order. Capped at 640x368 to
+        // match the vglInitWithCustomSizes display backbuffer in
+        // VitaInit.cpp — higher widths produced a black screen in testing
+        // (Vita display controller refuses certain backbuffer geometries).
+        static constexpr int kWidths[]  = { 480, 512, 640 };
+        static constexpr int kHeights[] = { 272, 288, 368 };
+        if (pos >= std::size(kWidths))
+            return;
+        Settings::video().mResolutionX.set(kWidths[pos]);
+        Settings::video().mResolutionY.set(kHeights[pos]);
+        // No apply() — render resolution requires a restart (engine creates
+        // its render FBO once at startup; resizing mid-session is not safe
+        // on vitaGL). The new value persists to user cfg and takes effect
+        // on next boot.
+    }
+
+    void SettingsWindow::onVitaTextureDetailChanged(MyGUI::ComboBox* /*sender*/, size_t pos)
+    {
+        // Indices aligned with layout AddItem order.
+        static const char* kValues[] = { "performance", "balanced", "high", "off" };
+        if (pos >= std::size(kValues))
+            return;
+        Settings::general().mVitaTextureDetail.set(kValues[pos]);
+        // No apply() — texture downsample happens at image-load time
+        // inside ImageManager::getImage. Already-cached textures retain
+        // their old caps. The new preset takes effect on next boot.
     }
 #endif
 

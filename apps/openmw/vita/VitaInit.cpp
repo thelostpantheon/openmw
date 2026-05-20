@@ -39,7 +39,16 @@
 // newlib crt0 resolve them as unmangled C symbols at process startup.
 extern "C" {
 // Extra memory mode (ATTRIBUTE2=12) grants ~357MB total user RAM.
-unsigned int _newlib_heap_size_user = 272 * 1024 * 1024;
+// Heap arc: 272 -> 288 -> 304 -> 312 -> 320 (game launched but froze
+// after load — late-init thread/system alloc failed against 0 MB
+// unclaimed user RAM) -> 312 MB (current). Per early_diag snapshots
+// the kernel + thread stacks + SDL/vitaGL static state consume ~37 MB
+// outside the heap, so 312 leaves ~8 MB unclaimed — enough to spawn
+// preload/workqueue threads after engine init. The capacity OOMs that
+// previously affected 312 are mitigated by malloc_trim coalescing and
+// dynamic texture tier-down (imagemanager.cpp), so 312 today gives
+// meaningfully more usable working set than 312 originally did.
+unsigned int _newlib_heap_size_user = 312 * 1024 * 1024;
 unsigned int sceUserMainThreadStackSize = 2 * 1024 * 1024;
 
 // Write an unsigned int as decimal to fd (no heap allocation)
@@ -410,13 +419,25 @@ namespace Vita
     // Cookie for the auto-detect scans. Stores the mtimes of the two folders
     // we walk; if both are unchanged, the previously-written # Auto-detected
     // sections in user openmw.cfg are still valid and we can skip the scans.
+    // bakedBsaCount/bakedBsaTotalSize fingerprint the contents of
+    // app0:/resources/baked-mods/. App0: is the read-only VPK mount and
+    // doesn't have reliable directory mtimes, so we use the count + total
+    // .bsa size as a cheap content fingerprint. Reinstalling a VPK with a
+    // different bake manifest changes either field and forces a rescan —
+    // otherwise stale fallback-archive= lines would persist in user cfg.
+    // Format note: changing this struct's layout invalidates old cookies
+    // (size mismatch in readModsScanCookie), which forces one rescan on
+    // upgrade. Clean migration, no version field needed.
     struct ModsScanCookie
     {
         SceDateTime modsMtime;
         SceDateTime dataFilesMtime;
+        uint32_t bakedBsaCount;
+        uint64_t bakedBsaTotalSize;
     };
 
     static const char* kModsScanCookiePath = "ux0:data/openmw/config/mods_scan.cookie";
+    static const char* kBakedModsDir = "app0:resources/baked-mods";
 
     static bool fetchDirMtime(const char* path, SceDateTime* out)
     {
@@ -425,6 +446,34 @@ namespace Vita
             return false;
         *out = s.st_mtime;
         return true;
+    }
+
+    // Walks app0:/resources/baked-mods/ once, counts .bsa files and sums
+    // their sizes. Hits 7 files in the typical bake — cheap enough to run
+    // every boot rather than coordinate with the build system.
+    static void fetchBakedFingerprint(uint32_t* outCount, uint64_t* outTotalSize)
+    {
+        *outCount = 0;
+        *outTotalSize = 0;
+        SceUID dd = sceIoDopen(kBakedModsDir);
+        if (dd < 0)
+            return;
+        SceIoDirent ent{};
+        while (sceIoDread(dd, &ent) > 0)
+        {
+            if (ent.d_name[0] == '.' || SCE_S_ISDIR(ent.d_stat.st_mode))
+            {
+                memset(&ent, 0, sizeof(ent));
+                continue;
+            }
+            if (hasExtension(ent.d_name, ".bsa"))
+            {
+                *outCount += 1;
+                *outTotalSize += static_cast<uint64_t>(ent.d_stat.st_size);
+            }
+            memset(&ent, 0, sizeof(ent));
+        }
+        sceIoDclose(dd);
     }
 
     static bool readModsScanCookie(ModsScanCookie* out)
@@ -442,6 +491,7 @@ namespace Vita
         ModsScanCookie cookie{};
         fetchDirMtime("ux0:data/openmw/mods", &cookie.modsMtime);
         fetchDirMtime("ux0:data/openmw/Data Files", &cookie.dataFilesMtime);
+        fetchBakedFingerprint(&cookie.bakedBsaCount, &cookie.bakedBsaTotalSize);
         SceUID fd = sceIoOpen(kModsScanCookiePath, SCE_O_WRONLY | SCE_O_CREAT | SCE_O_TRUNC, 0666);
         if (fd >= 0)
         {
@@ -457,6 +507,7 @@ namespace Vita
             return false;
         if (!fetchDirMtime("ux0:data/openmw/Data Files", &current.dataFilesMtime))
             return false;
+        fetchBakedFingerprint(&current.bakedBsaCount, &current.bakedBsaTotalSize);
         ModsScanCookie saved{};
         if (!readModsScanCookie(&saved))
             return false;
@@ -841,6 +892,99 @@ namespace Vita
         free(cfgBuf);
     }
 
+    // Scans app0:/resources/baked-mods/ for .bsa files (sorted alphabetically
+    // so the numeric prefix in each filename — 01-, 02-, ... — drives load
+    // order) and appends a `data=` path entry plus one `fallback-archive=`
+    // line per BSA to the user openmw.cfg.
+    //
+    // Ordering rationale: this function is called AFTER autoDetectContent
+    // (which auto-detects vanilla Morrowind.bsa / Tribunal.bsa / Bloodmoon.bsa
+    // from ux0 Data Files) AND after autoDetectModDataDirs (which detects
+    // user mod plugins/BSAs in ux0:data/openmw/mods/). So the cfg ends up:
+    //
+    //     fallback-archive=Morrowind.bsa       (vanilla, loaded first)
+    //     fallback-archive=Tribunal.bsa
+    //     fallback-archive=Bloodmoon.bsa
+    //     [user BSAs in ux0/mods/ if any]
+    //     fallback-archive=01-mop-core.bsa     (baked, loaded last -> wins)
+    //     fallback-archive=02-mop-better-vanilla-textures.bsa
+    //     ...
+    //
+    // OpenMW's last-BSA-wins precedence (registerarchives.cpp:26) puts the
+    // baked optimization mods on top of vanilla. User loose-file mods in
+    // ux0:data/openmw/mods/ still override the baked BSAs because
+    // registerArchives adds all loose data= directories AFTER all BSAs.
+    static void autoDetectBakedMods()
+    {
+        static const char* cfgPath = "ux0:data/openmw/config/openmw.cfg";
+
+        SceUID dd = sceIoDopen(kBakedModsDir);
+        if (dd < 0)
+            return;
+
+        // Collect .bsa filenames first so we can sort alphabetically before
+        // emitting (sceIoDread returns entries in filesystem order, which
+        // may not be sorted on FAT).
+        static constexpr int MAX_BSAS = 32;
+        char names[MAX_BSAS][256];
+        int count = 0;
+        SceIoDirent ent{};
+        while (sceIoDread(dd, &ent) > 0 && count < MAX_BSAS)
+        {
+            if (ent.d_name[0] == '.' || SCE_S_ISDIR(ent.d_stat.st_mode))
+            {
+                memset(&ent, 0, sizeof(ent));
+                continue;
+            }
+            if (hasExtension(ent.d_name, ".bsa"))
+            {
+                memcpy(names[count], ent.d_name, 256);
+                ++count;
+            }
+            memset(&ent, 0, sizeof(ent));
+        }
+        sceIoDclose(dd);
+
+        if (count == 0)
+            return;
+
+        // Bubble sort: count <= MAX_BSAS == 32, n² is fine.
+        for (int i = 0; i < count - 1; ++i)
+            for (int j = i + 1; j < count; ++j)
+                if (strcmp(names[i], names[j]) > 0)
+                {
+                    char tmp[256];
+                    memcpy(tmp, names[i], 256);
+                    memcpy(names[i], names[j], 256);
+                    memcpy(names[j], tmp, 256);
+                }
+
+        SceUID fd = sceIoOpen(cfgPath, SCE_O_WRONLY | SCE_O_APPEND | SCE_O_CREAT, 0666);
+        if (fd < 0)
+            return;
+
+        static const char hdr[] = "\n# Auto-detected baked mods\n";
+        sceIoWrite(fd, hdr, sizeof(hdr) - 1);
+
+        // One data= entry so the engine can resolve the BSAs by name.
+        static const char dataLine[] = "data=?local?/resources/baked-mods\n";
+        sceIoWrite(fd, dataLine, sizeof(dataLine) - 1);
+
+        for (int i = 0; i < count; ++i)
+        {
+            char line[320];
+            int len = snprintf(line, sizeof(line),
+                "fallback-archive=%s\n", names[i]);
+            if (len > 0)
+                sceIoWrite(fd, line, len);
+            char crumb[320];
+            snprintf(crumb, sizeof(crumb),
+                "Auto-detected baked mod: fallback-archive=%s", names[i]);
+            breadcrumb(crumb);
+        }
+        sceIoClose(fd);
+    }
+
     // Copy app0:vfs_seed/vfs_dir_<idx>.bin -> ux0:data/openmw/config/vfs_dir_<idx>.bin
     // if the destination doesn't already exist. Skips the recursive_directory_iterator
     // walk over app0:/resources/vfs and app0:/resources/vfs-mw on first launch.
@@ -963,6 +1107,10 @@ namespace Vita
             pruneAutoDetectedSections();
             autoDetectContent();
             autoDetectModDataDirs();
+            // Must run AFTER the two above so the baked-mod fallback-archive
+            // lines append AFTER vanilla Morrowind.bsa et al — OpenMW's
+            // last-BSA-wins precedence then puts the optimization mods on top.
+            autoDetectBakedMods();
             writeModsScanCookie();
         }
     }
@@ -1058,6 +1206,12 @@ namespace Vita
         vglSetFragmentBufferSize(2 * 1024 * 1024);        // 512 KB → 2 MB
         vglUseTripleBuffering(GL_TRUE);
         vglWaitVblankStart(GL_FALSE);
+        // Display backbuffer at 640x368. vitaGL only guards against
+        // exceeding the max framebuf resolution (960x544); it does NOT
+        // catch widths the Vita display controller refuses to scale.
+        // 768x432 was tried and produced a black screen — keep the
+        // proven-good 640x368 and cap the Render Resolution combo on
+        // the Vita Settings tab at 640x368 (no 720/768 presets).
         vglInitWithCustomSizes(0x100000, 640, 368,
             16 * 1024 * 1024,
             88 * 1024 * 1024,
@@ -1127,10 +1281,12 @@ namespace Vita
     {
         debugLog("Applying Vita platform defaults...");
 
-        // --- Video: render at 512x288 (both /32 aligned), hardware scaler
-        // upscales to 960x544.
-        Settings::video().mResolutionX.set(512);
-        Settings::video().mResolutionY.set(288);
+        // --- Video: resolution X/Y are NOT forced — bundled settings.cfg
+        // supplies 640x368 as the default (matches the vglInit backbuffer
+        // 1:1), and the Vita Settings tab exposes 480x272 / 512x288 /
+        // 640x368. See vglInitWithCustomSizes in initialize() for why
+        // higher widths aren't offered. Antialiasing and framerate cap
+        // stay forced.
         Settings::video().mAntialiasing.set(0);
         Settings::video().mFramerateLimit.set(30.0f);
 

@@ -377,6 +377,16 @@ if (VITA AND BUILD_OPENMW)
     # Extra memory mode: +109MB RAM (Vita disables background services)
     set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
 
+    # Bundle MOP + Project Atlas mod assets into the VPK as Morrowind BSA
+    # archives at app0:/resources/baked-mods/<NN>-<slug>.bsa. The cfg-side
+    # `data=` + `fallback-archive=` entries are written at boot by
+    # autoDetectBakedMods() in apps/openmw/vita/VitaInit.cpp, which scans
+    # the BSAs present in app0 — so the cfg side needs no build-time wiring.
+    # Source assets live in <repo>/mods/; if that tree is absent the bake
+    # script no-ops cleanly.
+    option(OPENMW_VITA_BAKE_MODS
+        "Bundle MOP + Project Atlas mod assets into the VPK as BSAs" ON)
+
     # Fix ARM relocations and veneer literal pools BEFORE conversion.
     add_custom_command(TARGET openmw POST_BUILD
         COMMAND python3 ${CMAKE_SOURCE_DIR}/scripts/vita/fix-relocations.py
@@ -441,4 +451,17 @@ if (VITA AND BUILD_OPENMW)
             ${CMAKE_BINARY_DIR}/resources
         COMMENT "Adding resources/ directory to VPK"
     )
+
+    # Bundle MOP + Project Atlas mod assets at resources/baked-mods/<name>/.
+    # Script no-ops cleanly if <repo>/mods/ or individual sources are missing,
+    # so this is safe to leave enabled on dev machines without the mods tree.
+    if(OPENMW_VITA_BAKE_MODS)
+        add_custom_command(TARGET openmw.vpk-vpk POST_BUILD
+            COMMAND python3
+                ${CMAKE_SOURCE_DIR}/scripts/vita/add-baked-mods-to-vpk.py
+                ${CMAKE_CURRENT_BINARY_DIR}/openmw.vpk
+                ${CMAKE_SOURCE_DIR}/mods
+            COMMENT "Adding baked-in optimization mods (MOP + Project Atlas) to VPK"
+        )
+    endif()
 endif()

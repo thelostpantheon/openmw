@@ -8,6 +8,7 @@
 
 #ifdef __vita__
 #include <malloc.h>
+#include <psp2/kernel/processmgr.h>
 #include <osg/Geometry>
 #include <osg/MatrixTransform>
 #include "../vita/VitaInit.h"
@@ -197,22 +198,19 @@ namespace
             ptr.getRefData().setBaseNode(pagedNode);
 #ifdef __vita__
         {
+            // Chargen-only post-insert debug. Mask_Object (0x400) and
+            // Mask_Static (0x800) used to be logged here too but produced
+            // thousands of lines per cell load and weren't actionable.
             std::string id = ptr.getCellRef().getRefId().toDebugString();
-            auto* base = ptr.getRefData().getBaseNode();
-            unsigned int mask = base ? base->getNodeMask() : 0;
-            // Log chargen objects + Mask_Object (0x400) + Mask_Static (0x800)
-            if (id.find("chargen") != std::string::npos || mask == 0x400 || mask == 0x800)
+            if (id.find("chargen") != std::string::npos)
             {
+                auto* base = ptr.getRefData().getBaseNode();
+                unsigned int mask = base ? base->getNodeMask() : 0;
                 const float* pos = ptr.getRefData().getPosition().pos;
-                float scale = ptr.getCellRef().getScale();
-                unsigned int numChildren = base ? base->getNumChildren() : 0;
-                unsigned int numParents = base ? base->getNumParents() : 0;
                 unsigned int recType = ptr.getType();
                 bool enabled = ptr.getRefData().isEnabled();
                 unsigned int drawables = 0, tris = 0;
                 if (base) countDrawables(base, drawables, tris);
-                bool hasStateSet = base && base->getNumChildren() > 0
-                    && base->getChild(0)->getStateSet() != nullptr;
                 char buf[512];
                 snprintf(buf, sizeof(buf),
                     "addObject(\"%s\") model='%.*s' mask=0x%x draw=%u tri=%u pos=(%.1f,%.1f,%.1f) type=0x%x ena=%d",
@@ -583,28 +581,84 @@ namespace MWWorld
         // typical ~30 MB interior-load + queued unref delta that can push us
         // past OOM if we wait until budget+10.
         {
+            // Tightened thresholds (was budget-10 / budget-25). The cache
+            // flush + unref queue drain takes a frame or two to take full
+            // effect; firing earlier means we catch fast cell-load spikes
+            // before they cross the OOM line. Hysteresis kept at 15 MB
+            // to avoid oscillating near the threshold.
+            //
+            // Slow-creep failure mode: if the first flush only frees ~10 MB
+            // and heap then plateaus between the re-arm threshold (229 MB
+            // for 304 MB heap) and the trigger threshold (244 MB), the latch
+            // never resets and subsequent slow growth (Lua GC, animation
+            // state, lingering refs) walks unimpeded to OOM. Time-based
+            // re-arm catches this — even when flushes return 0 MB,
+            // re-running them is cheap and at least lets us trigger
+            // emergency-reserve replenishment and probe whether anything
+            // newly evictable has accumulated. 5 s is a balance between
+            // overhead (flush traverses every cache map) and responsiveness.
             static bool s_cachesFlushed = false;
+            static uint64_t s_lastFlushTimeUs = 0;
+            static int s_flushCount = 0;
+            constexpr uint64_t kTimeReArmUs = 5ULL * 1000ULL * 1000ULL; // 5 s
+
             int usedMB = Vita::getHeapUsedMB();
             int budget = getVitaCellBudgetMB();
-            if (usedMB > budget - 10 && !s_cachesFlushed)
+            uint64_t nowUs = sceKernelGetProcessTimeWide();
+
+            if (s_cachesFlushed && (nowUs - s_lastFlushTimeUs) > kTimeReArmUs)
+            {
+                s_cachesFlushed = false;
+                Vita::breadcrumb("[MemWatchdog] Latch re-armed (30s timer)");
+            }
+
+            if (usedMB > budget - 20 && !s_cachesFlushed)
             {
                 mRendering.flushUnrefQueueImmediate();
                 mRendering.getResourceSystem()->clearCache();
                 // Static caches that bypass OSG expiry; cleared explicitly.
                 MWMechanics::AiPackage::clearPathgridCache();
                 MWRender::clearAnimationModelCache();
+                // Coalesce free chunks after the bulk-free. Texture
+                // decompression on Vita allocates varied-size RGBA buffers
+                // (64 KB to ~2.3 MB depending on texture-detail preset),
+                // and after a few thousand alloc/free cycles the heap
+                // fragments to the point that a single large allocation
+                // can fail with tens of MB still "free" — observed as
+                // OOM at heap-used=208 MB / free=104 MB. malloc_trim(0)
+                // walks the heap and merges adjacent free chunks back
+                // into contiguous blocks. Doesn't shrink the heap (fixed
+                // sbrk on Vita) but reclaims contiguous capacity.
+                malloc_trim(0);
                 s_cachesFlushed = true;
-                char buf[96];
-                snprintf(buf, sizeof(buf), "[MemWatchdog] Cache flush at %dMB (budget %dMB)", usedMB, budget);
+                s_lastFlushTimeUs = nowUs;
+                ++s_flushCount;
+                int usedAfterMB = Vita::getHeapUsedMB();
+                char buf[160];
+                snprintf(buf, sizeof(buf),
+                    "[MemWatchdog] flush #%d: %dMB->%dMB (-%dMB) budget=%dMB",
+                    s_flushCount, usedMB, usedAfterMB, usedMB - usedAfterMB, budget);
                 Vita::breadcrumb(buf);
+                // Best moment to try replenishing the emergency reserve:
+                // we just freed and coalesced. The previous code only
+                // attempted replenish in the "memory healthy" branch
+                // below, which often never fired in long high-pressure
+                // sessions — once the reserve was released by an OOM,
+                // it stayed null and the next OOM had no safety net.
+                Vita::replenishEmergencyReserve();
             }
             // Reset further below the trigger so we don't oscillate
             // on small allocations near the threshold.
-            else if (usedMB < budget - 25)
+            else if (usedMB < budget - 35)
             {
                 s_cachesFlushed = false; // reset when memory is healthy
                 Vita::replenishEmergencyReserve();
             }
+            // Belt-and-braces: try replenish every tick when reserve is
+            // missing. replenishEmergencyReserve is a no-op if it already
+            // exists, and silently fails if malloc(6MB) can't find a
+            // contiguous block — neither costs anything to attempt.
+            Vita::replenishEmergencyReserve();
         }
 #endif
     }
@@ -1306,8 +1360,14 @@ namespace MWWorld
         // — they share the main thread budget.
         if (!mPendingCellLoads.empty())
             return;
-        if (Vita::isMemoryPressure(getVitaCellBudgetMB()))
-            return;
+
+        // NOTE: do NOT bail under memory pressure here. Demotion FREES
+        // memory (removes non-static objects from old cells); pausing it
+        // when pressure is high was the bug that let heap grow unbounded
+        // across cell transitions. Promotion + cell-load (which ALLOCATE)
+        // still correctly bail under pressure — see processPendingPromotions
+        // and processPendingCellLoads.
+        const bool pressure = Vita::isMemoryPressure(getVitaCellBudgetMB());
 
         PendingDemotion& pd = mPendingDemotions.front();
         if (pd.cell == nullptr)
@@ -1328,7 +1388,11 @@ namespace MWWorld
         }
 
         auto navigatorUpdateGuard = mNavigator.makeUpdateGuard();
-        int budget = kDemotionsPerFrame;
+        // Under pressure, drain the queue 3x faster — the few extra ms per
+        // frame is a much better trade than the alternative (OOM crash).
+        const int heapBeforeMB = Vita::getHeapUsedMB();
+        int budget = pressure ? kDemotionsPerFrame * 3 : kDemotionsPerFrame;
+        int removed = 0;
         while (pd.nextIdx < static_cast<int>(pd.toRemove.size()) && budget > 0)
         {
             MWWorld::Ptr& ptr = pd.toRemove[pd.nextIdx++];
@@ -1336,6 +1400,7 @@ namespace MWWorld
                 continue; // already removed by another path
             removeNonLiteObject(ptr, navigatorUpdateGuard.get());
             --budget;
+            ++removed;
         }
 
         if (pd.nextIdx >= static_cast<int>(pd.toRemove.size()))
@@ -1344,13 +1409,28 @@ namespace MWWorld
             mWorld.getLocalScripts().clearCell(cell);
             mCellLoadTiers[cell] = CellLoadTier::Lite;
             {
-                char buf[128];
-                snprintf(buf, sizeof(buf), "Async demote (%d,%d) complete, heap %dMB",
+                const int heapAfterMB = Vita::getHeapUsedMB();
+                char buf[160];
+                snprintf(buf, sizeof(buf),
+                    "Async demote (%d,%d) complete: heap %dMB->%dMB (-%dMB)%s",
                     cell->getCell()->getGridX(), cell->getCell()->getGridY(),
-                    Vita::getHeapUsedMB());
+                    heapBeforeMB, heapAfterMB, heapBeforeMB - heapAfterMB,
+                    pressure ? " [pressure]" : "");
                 Vita::breadcrumb(buf);
             }
             mPendingDemotions.erase(mPendingDemotions.begin());
+        }
+        else if (removed > 0 && pressure)
+        {
+            // Mid-drain progress log while under pressure, so we can see
+            // whether the freed-memory pace is keeping up.
+            const int heapAfterMB = Vita::getHeapUsedMB();
+            char buf[160];
+            snprintf(buf, sizeof(buf),
+                "Async demote (%d,%d) partial: %d removed, heap %dMB->%dMB",
+                pd.cell->getCell()->getGridX(), pd.cell->getCell()->getGridY(),
+                removed, heapBeforeMB, heapAfterMB);
+            Vita::breadcrumb(buf);
         }
     }
 
@@ -1516,7 +1596,23 @@ namespace MWWorld
         if (it == mPendingPromotions.end())
             return;
 
-        VITA_CRUMB("flushPendingPromotion: forcing sync");
+        // Pre-flush: drain the unref queue so destructors from the
+        // cell-change that brought us here release their heap before the
+        // sync burst allocates. Deliberately NOT clearing the resource
+        // cache here — that releases texture refs, which OSG queues into
+        // glDeleteTextures at the next sceneEnd. Doing it mid-frame races
+        // with pending draw commands referencing the same textures and
+        // crashes inside SceGxm. changeCellGrid (the typical caller) has
+        // already run its own clearCache between frames before reaching
+        // this point, so an extra one here is also redundant.
+        const int heapBeforeMB = Vita::getHeapUsedMB();
+        mRendering.flushUnrefQueueImmediate();
+        const int heapAfterMB = Vita::getHeapUsedMB();
+        char buf[160];
+        snprintf(buf, sizeof(buf),
+            "flushPendingPromotion: pre-drain %dMB->%dMB (-%dMB), starting sync",
+            heapBeforeMB, heapAfterMB, heapBeforeMB - heapAfterMB);
+        Vita::breadcrumb(buf);
 
         if (!it->scriptsRegistered)
         {
@@ -1538,44 +1634,82 @@ namespace MWWorld
             // For sync flush we don't need priority sort — just process all.
             it->collected = true;
         }
+        // Chunked sync loops: process kChunkSize objects, then drain the
+        // unref queue (and clear cache if we crossed the watchdog trigger)
+        // before processing the next chunk. The original unbounded burst
+        // was the spike-into-OOM cause when this path runs late-session.
+        // Chunking gives destructors from each batch time to release real
+        // heap before the next batch allocates.
+        constexpr int kChunkSize = 32;
         while (it->nextRender < static_cast<int>(it->toInsert.size()))
         {
-            MWWorld::Ptr& ptr = it->toInsert[it->nextRender++];
-            if (!ptr.mRef->isDeleted() && ptr.getRefData().isEnabled()
-                && !ptr.getRefData().getBaseNode())
+            const int chunkEnd = std::min(it->nextRender + kChunkSize,
+                static_cast<int>(it->toInsert.size()));
+            while (it->nextRender < chunkEnd)
             {
-                try
+                MWWorld::Ptr& ptr = it->toInsert[it->nextRender++];
+                if (!ptr.mRef->isDeleted() && ptr.getRefData().isEnabled()
+                    && !ptr.getRefData().getBaseNode())
                 {
-                    addObject(ptr, mWorld, mPagedRefs, *mPhysics, mRendering);
-                }
-                catch (const std::exception& e)
-                {
-                    Log(Debug::Error) << "promote(force) render fail '"
-                                      << ptr.getCellRef().getRefId() << "': " << e.what();
+                    try
+                    {
+                        addObject(ptr, mWorld, mPagedRefs, *mPhysics, mRendering);
+                    }
+                    catch (const std::exception& e)
+                    {
+                        Log(Debug::Error) << "promote(force) render fail '"
+                                          << ptr.getCellRef().getRefId() << "': " << e.what();
+                    }
                 }
             }
+            // Inter-chunk drain. Unref queue only — that just drains
+            // destructors pending from our own queue without touching GL
+            // resources. clearCache() here is unsafe: it releases texture
+            // refs which OSG batches into glDeleteTextures at the next
+            // sceneEnd, and on a tile-based GPU like Vita's SGX543 that
+            // can race with a pending draw command from THIS frame still
+            // referencing the texture. Caught in a SceGxm@0xf074 data
+            // abort during sceneEnd -> flushDeletedTextureObjects after
+            // running around a lot. The per-frame watchdog handles
+            // clearCache() safely (between frames); leave it to that.
+            mRendering.flushUnrefQueueImmediate();
         }
         {
             const bool isInterior = !cell->isExterior();
             auto navigatorUpdateGuard = mNavigator.makeUpdateGuard();
             while (it->nextPhysics < static_cast<int>(it->toInsert.size()))
             {
-                MWWorld::Ptr& ptr = it->toInsert[it->nextPhysics++];
-                if (!ptr.mRef->isDeleted() && ptr.getRefData().isEnabled()
-                    && ptr.getRefData().getBaseNode())
+                const int chunkEnd = std::min(it->nextPhysics + kChunkSize,
+                    static_cast<int>(it->toInsert.size()));
+                while (it->nextPhysics < chunkEnd)
                 {
-                    try
+                    MWWorld::Ptr& ptr = it->toInsert[it->nextPhysics++];
+                    if (!ptr.mRef->isDeleted() && ptr.getRefData().isEnabled()
+                        && ptr.getRefData().getBaseNode())
                     {
-                        addObject(ptr, mWorld, *mPhysics, mLowestPoint, isInterior,
-                            mNavigator, navigatorUpdateGuard.get());
-                    }
-                    catch (const std::exception& e)
-                    {
-                        Log(Debug::Error) << "promote(force) physics fail '"
-                                          << ptr.getCellRef().getRefId() << "': " << e.what();
+                        try
+                        {
+                            addObject(ptr, mWorld, *mPhysics, mLowestPoint, isInterior,
+                                mNavigator, navigatorUpdateGuard.get());
+                        }
+                        catch (const std::exception& e)
+                        {
+                            Log(Debug::Error) << "promote(force) physics fail '"
+                                              << ptr.getCellRef().getRefId() << "': " << e.what();
+                        }
                     }
                 }
+                // Unref drain only — same reasoning as the render loop above.
+                mRendering.flushUnrefQueueImmediate();
             }
+        }
+        {
+            const int heapEndMB = Vita::getHeapUsedMB();
+            char buf[160];
+            snprintf(buf, sizeof(buf),
+                "flushPendingPromotion: done, %d objects, heap end %dMB",
+                static_cast<int>(it->toInsert.size()), heapEndMB);
+            Vita::breadcrumb(buf);
         }
         mPendingPromotions.erase(it);
     }
@@ -1791,6 +1925,13 @@ namespace MWWorld
 #ifdef __vita__
         Vita::breadcrumb("changeCellGrid() enter");
         Vita::logMemoryStatus("Pre-changeCellGrid");
+        // Drain any in-flight async physics worker before we start removing
+        // collision objects below. Workers stay quiescent until next
+        // applyQueuedMovements() so the unload batch can run without a
+        // worker mid-broadphase-iteration referencing freed objects.
+        // Caught as a SceGxm-class data abort under stress (arrows + cell
+        // transitions); see crash analysis in scene.hpp follow-up notes.
+        mPhysics->waitForAsyncWorkers();
 #endif
         const int halfGridSize
             = isEsm4Ext(playerCellIndex.mWorldspace) ? Constants::ESM4CellGridRadius : Constants::CellGridRadius;
@@ -1821,6 +1962,14 @@ namespace MWWorld
         mRendering.flushUnrefQueueImmediate();
         mRendering.flushUnrefQueueImmediate();
         mRendering.getResourceSystem()->updateCache(mRendering.getReferenceTime());
+        // Coalesce free chunks left behind by the bulk unref. See the
+        // matching malloc_trim() in the MemWatchdog block for rationale.
+        malloc_trim(0);
+        // After the largest single bulk-free event in the engine, also
+        // try replenishing the emergency reserve. If a previous OOM
+        // released it and we never dipped below the watchdog re-arm
+        // threshold to retry, this is the next-best moment.
+        Vita::replenishEmergencyReserve();
         Vita::logMemoryStatus("Post-flush");
 #endif
 
@@ -2353,6 +2502,9 @@ namespace MWWorld
             Vita::breadcrumb(buf);
         }
         Vita::logMemoryStatus("Pre-interior-load");
+        // Drain async physics workers before the unload batch — see comment
+        // in changeCellGrid() for full rationale.
+        mPhysics->waitForAsyncWorkers();
 #endif
 
         auto navigatorUpdateGuard = mNavigator.makeUpdateGuard();
