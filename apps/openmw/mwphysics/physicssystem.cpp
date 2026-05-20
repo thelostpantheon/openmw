@@ -311,7 +311,16 @@ namespace MWPhysics
     bool PhysicsSystem::canMoveToWaterSurface(const MWWorld::ConstPtr& actor, const float waterlevel)
     {
         const auto* physactor = getActor(actor);
-        return physactor && physactor->canMoveToWaterSurface(waterlevel, mCollisionWorld.get());
+        // Route through the scheduler so the broadphase sweep happens under
+        // the shared lock — previously this was the one unlocked main-thread
+        // reader of the collision world, racing with the async worker during
+        // cell unloads (see PhysicsTaskScheduler::canMoveToWaterSurface).
+        return physactor && mTaskScheduler->canMoveToWaterSurface(physactor, waterlevel);
+    }
+
+    void PhysicsSystem::waitForAsyncWorkers()
+    {
+        mTaskScheduler->waitForWorkers();
     }
 
     osg::Vec3f PhysicsSystem::getHalfExtents(const MWWorld::ConstPtr& actor) const

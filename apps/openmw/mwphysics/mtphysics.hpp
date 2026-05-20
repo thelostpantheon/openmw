@@ -76,6 +76,17 @@ namespace MWPhysics
         void releaseSharedStates(); // destroy all objects whose destructor can't be safely called from
                                     // ~PhysicsTaskScheduler()
 
+        // Locked wrapper around Actor::canMoveToWaterSurface. Required so
+        // main-thread gameplay callers don't read the broadphase concurrently
+        // with worker iteration.
+        bool canMoveToWaterSurface(const Actor* actor, float waterlevel);
+
+        // Block until any in-flight physics worker step has completed. Workers
+        // stay quiescent until the next doSimulation() kick — useful as a
+        // sync point before destructive operations on the collision world
+        // (e.g. cell unload's batched removeCollisionObject calls).
+        void waitForWorkers();
+
     private:
         class WorkersSync;
 
@@ -92,7 +103,6 @@ namespace MWPhysics
         void afterPostStep();
         void afterPostSim();
         void syncWithMainThread();
-        void waitForWorkers();
         void prepareWork(float& timeAccum, std::vector<Simulation>& simulations, osg::Timer_t frameStart,
             unsigned int frameNumber, osg::Stats& stats);
 

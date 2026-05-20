@@ -7,6 +7,10 @@
 #include <MyGUI_ImageBox.h>
 #include <MyGUI_ScrollBar.h>
 
+#ifdef __vita__
+#include "../vita/VitaIme.h"
+#endif
+
 #include <components/misc/resourcehelpers.hpp>
 #include <components/resource/resourcesystem.hpp>
 #include <components/settings/values.hpp>
@@ -590,6 +594,10 @@ namespace MWGui
         mCancelButton->eventMouseButtonClick += MyGUI::newDelegate(this, &SpellCreationDialog::onCancelButtonClicked);
         mBuyButton->eventMouseButtonClick += MyGUI::newDelegate(this, &SpellCreationDialog::onBuyButtonClicked);
         mNameEdit->eventEditSelectAccept += MyGUI::newDelegate(this, &SpellCreationDialog::onAccept);
+#ifdef __vita__
+        // Touch-to-reopen path (primary IME auto-pops in onOpen).
+        mNameEdit->eventMouseButtonClick += MyGUI::newDelegate(this, &SpellCreationDialog::onNameClicked);
+#endif
 
         setWidgets(mAvailableEffectsList, mUsedEffectsView);
 
@@ -683,7 +691,23 @@ namespace MWGui
     {
         center();
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mNameEdit);
+#ifdef __vita__
+        // The NameEdit field isn't in the controller focus rotation
+        // (see onControllerButtonEvent — focus cycles through effect
+        // selection and the Buy/Cancel buttons). Auto-pop the IME so
+        // controller-only users can name the spell. Cancel returns to
+        // the dialog with the existing/empty caption. Touch users can
+        // re-open by tapping the field (see ctor).
+        Vita::fillEditBoxFromIme(mNameEdit, "Spell Name", 31);
+#endif
     }
+
+#ifdef __vita__
+    void SpellCreationDialog::onNameClicked(MyGUI::Widget* /*sender*/)
+    {
+        Vita::fillEditBoxFromIme(mNameEdit, "Spell Name", 31);
+    }
+#endif
 
     void SpellCreationDialog::onReferenceUnavailable()
     {
