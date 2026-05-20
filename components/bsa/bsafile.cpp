@@ -39,6 +39,7 @@
 #include <components/files/constrainedfilestream.hpp>
 #include <components/files/utils.hpp>
 
+
 using namespace Bsa;
 
 /// Error handling
@@ -320,8 +321,21 @@ void Bsa::BSAFile::close()
 
 Files::IStreamPtr Bsa::BSAFile::getFile(const FileStruct* file)
 {
+    // NOTE: An earlier optimization here pooled file handles and eager-read
+    // the entire asset into a malloc'd buffer (one syscall per asset, no
+    // fopen latency). It crashed under heavy load — Icarian Flight stress
+    // test across many cells triggered an OOM at heap-used=234 MB / free=76 MB,
+    // which is heap fragmentation, not exhaustion. The eager-read pattern
+    // mallocs a different-sized buffer for every asset (4 KB to 256 KB
+    // range); newlib's allocator doesn't compact, so a few thousand
+    // varied-size alloc/free cycles fragment the heap until no large
+    // contiguous block can be found. The stream path below uses a single
+    // 32 KB internal buffer per ConstrainedFileStreamBuf and reads
+    // incrementally — no varied-size per-asset allocations, no
+    // fragmentation. Trades fopen latency back for stability.
     return Files::openConstrainedFileStream(mFilepath, file->mOffset, file->mFileSize);
 }
+
 
 void Bsa::BSAFile::addFile(const std::string& filename, std::istream& file)
 {
