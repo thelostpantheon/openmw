@@ -62,6 +62,16 @@ namespace MWGui
         WindowModal::onOpen();
         // Make sure the edit box has focus
         MWBase::Environment::get().getWindowManager()->setKeyFocusWidget(mTextEdit);
+#ifdef __vita__
+        // Auto-open the IME so the user doesn't have to press A first.
+        // On confirm we auto-submit the dialog (same flow as the A-button
+        // handler below); on cancel we leave it visible so they can
+        // press A to retry or B to back out.
+        if (Vita::fillEditBoxFromIme(mTextEdit, "Enter Name", 64))
+        {
+            eventDone(this);
+        }
+#endif
     }
 
     // widget controls

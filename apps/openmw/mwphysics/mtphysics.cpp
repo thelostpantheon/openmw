@@ -684,6 +684,19 @@ namespace MWPhysics
         ContactTestWrapper::contactTest(mCollisionWorld, colObj, resultCallback);
     }
 
+    bool PhysicsTaskScheduler::canMoveToWaterSurface(const Actor* actor, float waterlevel)
+    {
+        // Actor::canMoveToWaterSurface does a convex sweep through the
+        // collision world. Take the shared lock so we don't race with
+        // worker iteration (Move visitor) or with exclusive writers
+        // (removeCollisionObject during cell unload). Previously this
+        // path was reached unlocked via PhysicsSystem and produced a
+        // SceGxm-class data abort inside Bullet's rayTestSingleInternal
+        // when an arrow happened to be in flight during a cell change.
+        MaybeLock lock(mCollisionWorldMutex, mLockingPolicy);
+        return actor->canMoveToWaterSurface(waterlevel, mCollisionWorld);
+    }
+
     std::optional<btVector3> PhysicsTaskScheduler::getHitPoint(const btTransform& from, btCollisionObject* target)
     {
         MaybeLock lock(mCollisionWorldMutex, mLockingPolicy);

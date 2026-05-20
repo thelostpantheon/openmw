@@ -10,6 +10,9 @@
 #include <psp2/kernel/threadmgr.h>
 #include <vitaGL.h>
 
+#include <MyGUI_EditBox.h>
+#include <MyGUI_UString.h>
+
 #include "VitaInit.h"
 
 namespace
@@ -162,6 +165,19 @@ namespace Vita
 
         breadcrumb("[VitaIME] Dialog cancelled.");
         return {};
+    }
+
+    bool fillEditBoxFromIme(MyGUI::EditBox* edit, const char* title, int maxLen)
+    {
+        if (edit == nullptr)
+            return false;
+        // Read existing text so the user can edit rather than re-type.
+        const std::string current = edit->getCaption().asUTF8();
+        const std::string result = openTextDialog(title, current.c_str(), maxLen);
+        if (result.empty())
+            return false;
+        edit->setCaption(result);
+        return true;
     }
 }
 
